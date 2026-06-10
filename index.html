@@ -329,6 +329,16 @@ canvas{width:100%!important;border-radius:8px;}
 
   </div>
 
+  <!-- API key setup — shown only when no key is saved -->
+  <div id="apiKeyCard" style="display:none;background:var(--blue-bg);border-radius:16px;padding:16px;margin-bottom:12px;">
+    <div style="font-size:14px;font-weight:700;margin-bottom:4px;color:var(--blue)">נדרש מפתח Finnhub</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:10px;line-height:1.5;">הכנס את מפתח ה-API שלך מ-finnhub.io (חינמי) לקבלת מחירים חיים ומהירים.</div>
+    <div style="display:flex;gap:8px;">
+      <input id="apiKeyInput" type="text" placeholder="הכנס מפתח API..." style="flex:1;padding:10px 12px;border-radius:10px;border:1.5px solid var(--blue);background:var(--card);color:var(--text);font-family:'Heebo',sans-serif;font-size:14px;outline:none;" />
+      <button onclick="saveFinnhubKey()" style="padding:10px 16px;border-radius:10px;border:none;background:var(--blue);color:#fff;font-family:'Heebo',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">שמור</button>
+    </div>
+  </div>
+
   <div class="sec-header">שווקים</div>
   <div class="group" id="priceMarkets"><div class="group-row"><div class="row-label">טוען...</div></div></div>
 
@@ -543,6 +553,30 @@ async function fetchSinglePrice(symbol) {
     const change = ((price - prevClose) / prevClose) * 100;
     return { price, change };
   } catch { return null; }
+}
+
+async function fetchFinnhub(symbol) {
+  const key = localStorage.getItem('finnhub_key');
+  if (!key) return null;
+  try {
+    const res = await fetch(
+      `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${key}`,
+      { signal: AbortSignal.timeout(8000) }
+    );
+    if (!res.ok) return null;
+    const d = await res.json();
+    if (!d || !d.c || d.c === 0) return null;
+    return { price: d.c, change: d.pc ? ((d.c - d.pc) / d.pc) * 100 : (d.dp || 0) };
+  } catch { return null; }
+}
+
+function saveFinnhubKey() {
+  const key = document.getElementById('apiKeyInput').value.trim();
+  if (!key) return;
+  localStorage.setItem('finnhub_key', key);
+  document.getElementById('apiKeyCard').style.display = 'none';
+  pricesLoaded = false;
+  loadPrices();
 }
 
 function calcSMA(arr, n) {
@@ -1089,46 +1123,51 @@ function priceRow(label, data, suffix='') {
 
 async function loadPrices() {
   pricesLoaded = true;
-  
 
-  const [nasdaq, dji, ta125, gold, oil, btc, y10, y2, y30, usdils, eurusd] = await Promise.allSettled([
-    fetchSinglePrice('%5EIXIC'),
-    fetchSinglePrice('%5EDJI'),
-    fetchSinglePrice('%5ETA125.TA'),
-    fetchSinglePrice('GC%3DF'),
-    fetchSinglePrice('CL%3DF'),
-    fetchSinglePrice('BTC-USD'),
-    fetchSinglePrice('%5ETNX'),
-    fetchSinglePrice('%5EIRX'),
-    fetchSinglePrice('%5ETYX'),
-    fetchSinglePrice('ILS%3DX'),
-    fetchSinglePrice('EURUSD%3DX'),
+  const hasKey = !!localStorage.getItem('finnhub_key');
+  document.getElementById('apiKeyCard').style.display = hasKey ? 'none' : 'block';
+
+  async function fhOrYahoo(fhSym, ySym) {
+    const r = await fetchFinnhub(fhSym);
+    return r || fetchSinglePrice(ySym).catch(() => null);
+  }
+
+  const [nasdaq, dji, ta125, gold, oil, btc, y10, y3m, y30, usdils, eurusd, dxy] = await Promise.all([
+    fhOrYahoo('^IXIC',       '%5EIXIC'),
+    fhOrYahoo('^DJI',        '%5EDJI'),
+    fetchSinglePrice('%5ETA125.TA').catch(() => null),
+    fhOrYahoo('OANDA:XAU_USD', 'GC%3DF'),
+    fetchSinglePrice('CL%3DF').catch(() => null),
+    fhOrYahoo('BINANCE:BTCUSDT', 'BTC-USD'),
+    fetchSinglePrice('%5ETNX').catch(() => null),
+    fetchSinglePrice('%5EIRX').catch(() => null),
+    fetchSinglePrice('%5ETYX').catch(() => null),
+    fhOrYahoo('OANDA:USD_ILS', 'ILS%3DX'),
+    fhOrYahoo('OANDA:EUR_USD', 'EURUSD%3DX'),
+    fetchSinglePrice('DX-Y.NYB').catch(() => null),
   ]);
 
-  const v = r => r.status==='fulfilled'?r.value:null;
-
   document.getElementById('priceMarkets').innerHTML =
-    priceRow('Nasdaq', v(nasdaq)) +
-    priceRow('Dow Jones', v(dji)) +
-    priceRow('ת"א 125', v(ta125));
+    priceRow('Nasdaq', nasdaq) +
+    priceRow('Dow Jones', dji) +
+    priceRow('ת"א 125', ta125);
 
   document.getElementById('priceSafehaven').innerHTML =
-    priceRow('זהב ($/אונקיה)', v(gold), '$') +
-    priceRow('נפט WTI ($/חבית)', v(oil), '$') +
-    priceRow('Bitcoin', v(btc), '$');
+    priceRow('זהב ($/אונקיה)', gold, '$') +
+    priceRow('נפט WTI ($/חבית)', oil, '$') +
+    priceRow('Bitcoin', btc, '$');
 
   document.getElementById('priceBonds').innerHTML =
-    priceRow('אג"ח 10 שנים', v(y10)) +
-    priceRow('אג"ח 2 שנים', v(y2)) +
-    priceRow('אג"ח 30 שנים', v(y30));
+    priceRow('אג"ח 10 שנים', y10) +
+    priceRow('אג"ח 3 חודשים', y3m) +
+    priceRow('אג"ח 30 שנים', y30);
 
   document.getElementById('priceFx').innerHTML =
-    priceRow('דולר/שקל', v(usdils)) +
-    priceRow('יורו/דולר', v(eurusd)) +
-    priceRow('מדד דולר DXY', await fetchSinglePrice('DX-Y.NYB').catch(()=>null));
+    priceRow('דולר/שקל', usdils) +
+    priceRow('יורו/דולר', eurusd) +
+    priceRow('מדד דולר DXY', dxy);
 
   tsNow('ts2');
-  
 }
 
 // ═══════════════════════
