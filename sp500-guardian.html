@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>שומר התיק</title>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+:root {
+  --bg:#f2f2f7; --card:#fff; --sep:rgba(60,60,67,0.12);
+  --green:#34c759; --green-bg:#e8f8ec;
+  --red:#ff3b30;   --red-bg:#fff0ef;
+  --amber:#ff9500; --amber-bg:#fff5e6;
+  --blue:#007aff;  --blue-bg:#e5f0ff;
+  --purple:#af52de;--purple-bg:#f5eaff;
+  --text:#000; --text2:#3c3c43; --muted:#8e8e93;
+}
+@media(prefers-color-scheme:dark){
+  :root{--bg:#1c1c1e;--card:#2c2c2e;--sep:rgba(84,84,88,0.6);
+  --text:#fff;--text2:#ebebf5;--muted:#8e8e93;
+  --green-bg:#1a3a22;--red-bg:#3a1a1a;--amber-bg:#3a2a1a;--blue-bg:#1a2a3a;--purple-bg:#2a1a3a;}
+}
+body{background:var(--bg);color:var(--text);font-family:'Heebo',-apple-system,sans-serif;
+  height:100vh;overflow:hidden;-webkit-font-smoothing:antialiased;}
+
+/* SWIPE — native horizontal scroll-snap */
+.pages-wrap{display:flex;width:100vw;height:100vh;overflow-x:scroll;overflow-y:hidden;
+  scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scroll-behavior:smooth;}
+.pages-wrap::-webkit-scrollbar{display:none;}
+.page{width:100vw;height:100vh;flex:0 0 100vw;overflow-y:auto;overflow-x:hidden;
+  padding-bottom:80px;-webkit-overflow-scrolling:touch;scroll-snap-align:start;scroll-snap-stop:always;}
+.wrap{max-width:430px;margin:0 auto;padding:0 16px;}
+
+/* DOTS */
+.page-dots{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);display:flex;gap:7px;z-index:100;}
+.page-dot{width:7px;height:7px;border-radius:50%;background:var(--muted);opacity:.4;transition:all .3s;}
+.page-dot.active{opacity:1;background:var(--blue);width:20px;border-radius:4px;}
+
+/* HEADER */
+.header{padding:52px 0 8px;display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px;}
+.header-title{font-size:32px;font-weight:700;letter-spacing:-.5px;line-height:1;}
+.header-sub{font-size:13px;color:var(--muted);margin-top:3px;}
+.refresh-btn{background:var(--card);border:none;border-radius:50%;width:36px;height:36px;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:17px;
+  box-shadow:0 1px 3px rgba(0,0,0,.12);-webkit-appearance:none;flex-shrink:0;margin-bottom:4px;}
+.refresh-btn:active{opacity:.6;}
+.refresh-btn.spinning{animation:spin 1s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* VERDICT */
+.verdict{border-radius:20px;padding:20px;margin-bottom:10px;transition:all .4s;}
+.verdict.hold{background:var(--green-bg);}
+.verdict.exit{background:var(--red-bg);}
+.verdict.watch{background:var(--amber-bg);}
+.verdict.load{background:var(--card);}
+.verdict-top{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.verdict-icon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;
+  justify-content:center;font-size:22px;flex-shrink:0;}
+.verdict.hold .verdict-icon{background:var(--green);}
+.verdict.exit .verdict-icon{background:var(--red);}
+.verdict.watch .verdict-icon{background:var(--amber);}
+.verdict.load .verdict-icon{background:var(--bg);}
+.verdict-label{font-size:13px;font-weight:500;color:var(--muted);margin-bottom:2px;}
+.verdict-title{font-size:22px;font-weight:700;letter-spacing:-.3px;}
+.verdict.hold .verdict-title{color:var(--green);}
+.verdict.exit .verdict-title{color:var(--red);}
+.verdict.watch .verdict-title{color:var(--amber);}
+.verdict.load .verdict-title{color:var(--muted);}
+.verdict-body{font-size:15px;line-height:1.5;color:var(--text2);}
+
+/* SEC HEADER */
+.sec-header{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.6px;padding:18px 4px 8px;}
+
+/* GROUP */
+.group{background:var(--card);border-radius:16px;overflow:hidden;margin-bottom:10px;}
+.group-row{display:flex;align-items:center;justify-content:space-between;
+  padding:14px 16px;border-bottom:1px solid var(--sep);gap:12px;}
+.group-row:last-child{border-bottom:none;}
+.row-label{font-size:13px;color:var(--muted);margin-bottom:3px;}
+.row-value{font-size:26px;font-weight:700;letter-spacing:-.5px;line-height:1;}
+.row-value.green{color:var(--green);}
+.row-value.red{color:var(--red);}
+.row-value.blue{color:var(--blue);}
+.row-value.amber{color:var(--amber);}
+.row-sub{font-size:13px;color:var(--muted);margin-top:3px;}
+.row-sub.up{color:var(--green);}
+.row-sub.down{color:var(--red);}
+
+.pill{display:inline-block;padding:5px 12px;border-radius:20px;font-size:13px;font-weight:600;white-space:nowrap;}
+.pill.green{background:var(--green-bg);color:var(--green);}
+.pill.red{background:var(--red-bg);color:var(--red);}
+.pill.blue{background:var(--blue-bg);color:var(--blue);}
+.pill.amber{background:var(--amber-bg);color:var(--amber);}
+.pill.muted{background:var(--bg);color:var(--muted);}
+
+/* STREAK */
+.streak-row{padding:16px;}
+.streak-label{font-size:13px;color:var(--muted);margin-bottom:12px;}
+.streak-dots{display:flex;gap:8px;margin-bottom:10px;}
+.dot{flex:1;height:44px;border-radius:12px;background:var(--bg);display:flex;
+  align-items:center;justify-content:center;font-size:18px;font-weight:700;transition:all .3s;}
+.dot.below{background:var(--red-bg);color:var(--red);}
+.streak-verdict{font-size:14px;font-weight:500;color:var(--text2);}
+.streak-verdict.alert{color:var(--red);}
+
+/* RULES */
+.rule-row{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--sep);}
+.rule-row:last-child{border-bottom:none;}
+.rule-num{width:28px;height:28px;border-radius:50%;background:var(--blue-bg);color:var(--blue);
+  font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;}
+.rule-text{font-size:15px;line-height:1.5;color:var(--text2);flex:1;}
+.rule-text b{color:var(--text);font-weight:700;}
+.rule-text .danger{color:var(--red);font-weight:700;}
+
+/* LADDER */
+.ladder-row{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--sep);}
+.ladder-row:last-child{border-bottom:none;}
+.ladder-step{width:30px;height:30px;border-radius:50%;background:var(--blue);color:#fff;
+  font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.ladder-cond{font-size:15px;color:var(--text2);flex:1;line-height:1.4;}
+.ladder-amt{font-size:13px;font-weight:600;color:var(--blue);flex-shrink:0;}
+
+/* RISK METER */
+.risk-meter-card{background:var(--card);border-radius:20px;padding:20px;margin-bottom:10px;}
+.risk-meter-title{font-size:13px;color:var(--muted);font-weight:600;text-transform:uppercase;
+  letter-spacing:.6px;margin-bottom:16px;}
+.risk-score{font-size:56px;font-weight:900;letter-spacing:-2px;line-height:1;margin-bottom:4px;}
+.risk-score.green{color:var(--green);}
+.risk-score.amber{color:var(--amber);}
+.risk-score.red{color:var(--red);}
+.risk-label{font-size:17px;font-weight:700;margin-bottom:12px;}
+.risk-bar-wrap{background:var(--bg);border-radius:8px;height:10px;overflow:hidden;margin-bottom:10px;
+  background:linear-gradient(90deg,var(--green) 0%,var(--amber) 50%,var(--red) 100%);}
+.risk-bar-mask{height:100%;border-radius:0 8px 8px 0;background:var(--bg);transition:width 1.2s ease;}
+.risk-desc{font-size:14px;color:var(--text2);line-height:1.5;}
+
+/* MACRO CARDS */
+.macro-card{background:var(--card);border-radius:16px;padding:16px;margin-bottom:10px;
+  display:flex;align-items:stretch;gap:14px;}
+.macro-bar-left{width:4px;border-radius:3px;flex-shrink:0;}
+.macro-bar-left.green{background:var(--green);}
+.macro-bar-left.amber{background:var(--amber);}
+.macro-bar-left.red{background:var(--red);}
+.macro-body{flex:1;}
+.macro-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px;}
+.macro-name{font-size:14px;font-weight:700;}
+.macro-badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;flex-shrink:0;}
+.macro-badge.green{background:var(--green-bg);color:var(--green);}
+.macro-badge.amber{background:var(--amber-bg);color:var(--amber);}
+.macro-badge.red{background:var(--red-bg);color:var(--red);}
+.macro-value-row{display:flex;align-items:baseline;gap:8px;margin-bottom:4px;}
+.macro-value{font-size:24px;font-weight:800;letter-spacing:-.5px;}
+.macro-value.green{color:var(--green);}
+.macro-value.amber{color:var(--amber);}
+.macro-value.red{color:var(--red);}
+.macro-normal{font-size:12px;color:var(--muted);}
+.macro-desc{font-size:12px;color:var(--muted);line-height:1.5;}
+
+/* yield banner */
+.yc-banner{border-radius:12px;padding:13px;margin-top:10px;}
+.yc-banner.red{background:var(--red-bg);}
+.yc-banner.amber{background:var(--amber-bg);}
+.yc-banner.green{background:var(--green-bg);}
+.yc-banner-big{font-size:18px;font-weight:900;line-height:1.15;margin-bottom:5px;}
+.yc-banner-big.red{color:var(--red);}
+.yc-banner-big.amber{color:var(--amber);}
+.yc-banner-big.green{color:var(--green);}
+.yc-banner-text{font-size:13px;line-height:1.55;color:var(--text2);}
+.yc-banner-text b{color:var(--text);font-weight:800;}
+/* yield timeline */
+.yc-timeline{display:flex;align-items:center;gap:3px;margin-top:12px;}
+.yc-step{flex:1;text-align:center;padding:9px 2px;border-radius:9px;background:var(--bg);transition:all .3s;}
+.yc-step-icon{font-size:15px;margin-bottom:2px;line-height:1;}
+.yc-step-name{font-size:9px;font-weight:700;line-height:1.1;}
+.yc-step-arrow{font-size:12px;color:var(--muted);flex-shrink:0;}
+.yc-step.active{transform:scale(1.08);}
+.yc-step.active.red{background:var(--red);color:#fff;}
+.yc-step.active.amber{background:var(--amber);color:#fff;}
+.yc-step.active.green{background:var(--green);color:#fff;}
+
+/* CHART */
+.chart-card{background:var(--card);border-radius:16px;padding:16px;margin-bottom:10px;}
+.chart-title{font-size:13px;color:var(--muted);margin-bottom:12px;font-weight:600;}
+.chart-header-row{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;}
+.chart-stat-label{font-size:13px;color:var(--muted);margin-bottom:2px;}
+.chart-stat-value{font-size:30px;font-weight:800;letter-spacing:-.5px;line-height:1;}
+.chart-stat-value.green{color:var(--green);}
+.chart-stat-value.red{color:var(--red);}
+.chart-stat-sub{font-size:13px;margin-top:3px;}
+.chart-stat-sub.up{color:var(--green);}
+.chart-stat-sub.down{color:var(--red);}
+canvas{width:100%!important;border-radius:8px;}
+
+/* TIMESTAMP */
+.timestamp{text-align:center;font-size:12px;color:var(--muted);padding:8px 0 4px;}
+
+/* ERROR */
+.error-box{background:var(--red-bg);border-radius:14px;padding:14px 16px;
+  font-size:13px;color:var(--red);line-height:1.6;margin-bottom:10px;display:none;}
+
+/* SKEL */
+.skel{background:linear-gradient(90deg,var(--bg) 25%,var(--sep) 50%,var(--bg) 75%);
+  background-size:200% 100%;animation:shimmer 1.4s infinite;
+  border-radius:6px;height:26px;width:90px;display:inline-block;}
+@keyframes shimmer{to{background-position:-200% 0;}}
+</style>
+</head>
+<body>
+
+<div class="page-dots">
+  <div class="page-dot active" id="dot0"></div>
+  <div class="page-dot" id="dot1"></div>
+  <div class="page-dot" id="dot2"></div>
+  <div class="page-dot" id="dot3"></div>
+</div>
+
+<div class="pages-wrap" id="pagesWrap">
+
+<!-- ══════════════════════════════════════
+     PAGE 1 — SMA GUARDIAN
+══════════════════════════════════════ -->
+<div class="page" id="page0"><div class="wrap">
+
+  <div class="header">
+    <div><div class="header-title">שומר התיק</div><div class="header-sub">S&P 500 · SMA 200</div></div>
+
+  </div>
+
+  <div class="error-box" id="errorBox"></div>
+
+  <div class="verdict load" id="verdictCard">
+    <div class="verdict-top">
+      <div class="verdict-icon" id="verdictIcon">⏳</div>
+      <div><div class="verdict-label">מצב תיק</div><div class="verdict-title" id="verdictTitle">טוען...</div></div>
+    </div>
+    <div class="verdict-body" id="verdictBody">מחשב את מצב השוק</div>
+  </div>
+
+  <!-- MINI CHART with embedded values -->
+  <div class="chart-card">
+    <div class="chart-header-row">
+      <div class="chart-stat">
+        <div class="chart-stat-label">S&P 500 מול קו 200</div>
+        <div class="chart-stat-sub" id="spChange">—</div>
+      </div>
+      <div id="spBadge"><span class="pill muted">טוען</span></div>
+    </div>
+    <canvas id="smaChart" height="150"></canvas>
+  </div>
+
+  <div class="group">
+    <div class="streak-row">
+      <div class="streak-label">ספירת ימים מתחת לקו — יציאה ביום 3</div>
+      <div class="streak-dots" id="streakDots">
+        <div class="dot">1</div><div class="dot">2</div><div class="dot">3</div>
+      </div>
+      <div class="streak-verdict" id="streakVerdict">טוען...</div>
+    </div>
+  </div>
+
+  <div class="timestamp" id="ts0">—</div>
+
+  <div class="sec-header">מתי לפעול</div>
+  <div class="group">
+    <div class="rule-row">
+      <div class="rule-num">1</div>
+      <div class="rule-text"><b>צא מהמניות</b> — אם S&P נסגר מתחת לSMA200 שלושה ימים ברצף. מכור את כל ה-40% מניות באותו יום.</div>
+    </div>
+    <div class="rule-row">
+      <div class="rule-num">2</div>
+      <div class="rule-text"><b>אל תזוז</b> — ירידה של עד 10% ללא פריצת הקו היא תיקון רגיל.</div>
+    </div>
+    <div class="rule-row">
+      <div class="rule-num">3</div>
+      <div class="rule-text"><b>בדוק פעם בשבוע בלבד</b> — כל יום ראשון בבוקר.</div>
+    </div>
+  </div>
+
+  <div class="sec-header">חזרה למניות — בשלישים</div>
+  <div class="group">
+    <div class="ladder-row"><div class="ladder-step">א</div><div class="ladder-cond">S&P חוצה חזרה מעל SMA200</div><div class="ladder-amt">שליש ראשון</div></div>
+    <div class="ladder-row"><div class="ladder-step">ב</div><div class="ladder-cond">10 ימי מסחר רצופים מעל הקו</div><div class="ladder-amt">שליש שני</div></div>
+    <div class="ladder-row"><div class="ladder-step">ג</div><div class="ladder-cond">Golden Cross — SMA50 מעל SMA200</div><div class="ladder-amt">שליש שלישי</div></div>
+  </div>
+
+</div></div>
+
+<!-- ══════════════════════════════════════
+     PAGE 2 — RISK METER + MACRO
+══════════════════════════════════════ -->
+<div class="page" id="page1"><div class="wrap">
+
+  <div class="header">
+    <div><div class="header-title">מד סיכון</div><div class="header-sub">תמונת מצב כוללת</div></div>
+
+  </div>
+
+  <!-- BIG RISK SCORE -->
+  <div class="risk-meter-card">
+    <div class="risk-meter-title">סיכון שוק כולל</div>
+    <div class="risk-score" id="riskScore"><span class="skel"></span></div>
+    <div class="risk-label" id="riskLabel">טוען...</div>
+    <div class="risk-bar-wrap"><div class="risk-bar-mask" id="riskBarMask" style="width:100%"></div></div>
+    <div class="risk-desc" id="riskDesc">מחשב על בסיס כל המדדים...</div>
+  </div>
+
+  <div class="sec-header">מדדי תמחור</div>
+  <div id="macroValuation"></div>
+
+  <div class="sec-header">מדדי שוק</div>
+  <div id="macroMarket"></div>
+
+  <div class="sec-header">מדדי מאקרו</div>
+  <div id="macroEcon"></div>
+
+  <div class="timestamp" id="ts1">—</div>
+
+</div></div>
+
+<!-- ══════════════════════════════════════
+     PAGE 3 — LIVE PRICES
+══════════════════════════════════════ -->
+<div class="page" id="page2"><div class="wrap">
+
+  <div class="header">
+    <div><div class="header-title">מחירים חיים</div><div class="header-sub">נכסים · מטבעות · אג"ח</div></div>
+
+  </div>
+
+  <div class="sec-header">שווקים</div>
+  <div class="group" id="priceMarkets"><div class="group-row"><div class="row-label">טוען...</div></div></div>
+
+  <div class="sec-header">סחורות ובטחון</div>
+  <div class="group" id="priceSafehaven"><div class="group-row"><div class="row-label">טוען...</div></div></div>
+
+  <div class="sec-header">אג"ח ממשלתי</div>
+  <div class="group" id="priceBonds"><div class="group-row"><div class="row-label">טוען...</div></div></div>
+
+  <div class="sec-header">מטבעות</div>
+  <div class="group" id="priceFx"><div class="group-row"><div class="row-label">טוען...</div></div></div>
+
+  <div class="timestamp" id="ts2">—</div>
+
+</div></div>
+
+<!-- ══════════════════════════════════════
+     PAGE 4 — FULL MARKET BREADTH (all 500)
+══════════════════════════════════════ -->
+<div class="page" id="page3"><div class="wrap">
+
+  <div class="header">
+    <div><div class="header-title">רוחב שוק מלא</div><div class="header-sub">כל מניות ה-S&P 500</div></div>
+  </div>
+
+  <!-- big breadth gauge -->
+  <div class="risk-meter-card">
+    <div class="risk-meter-title">אחוז מניות מעל קו 200</div>
+    <div class="risk-score" id="fullBreadthScore"><span class="skel"></span></div>
+    <div class="risk-label" id="fullBreadthLabel">לחץ לטעינה</div>
+    <div class="risk-bar-wrap"><div class="risk-bar-mask" id="fullBreadthBar" style="width:100%"></div></div>
+    <div class="risk-desc" id="fullBreadthDesc">בדיקה מלאה של כל ~500 המניות. הטעינה אורכת כדקה.</div>
+  </div>
+
+  <!-- progress -->
+  <div class="group" id="fullBreadthProgWrap" style="display:none;">
+    <div class="streak-row">
+      <div class="streak-label" id="fullBreadthProgLabel">טוען מניות...</div>
+      <div class="risk-bar-wrap" style="background:var(--bg);"><div class="risk-bar-mask" id="fullBreadthProg" style="width:0%;background:var(--blue);border-radius:8px;"></div></div>
+    </div>
+  </div>
+
+  <!-- load button -->
+  <button id="fullBreadthBtn" onclick="loadFullBreadth()" style="width:100%;padding:16px;border:none;border-radius:14px;background:var(--blue);color:#fff;font-family:'Heebo',sans-serif;font-size:16px;font-weight:700;cursor:pointer;margin-bottom:10px;-webkit-appearance:none;">
+    טען בדיקה מלאה (500 מניות)
+  </button>
+
+  <!-- breakdown -->
+  <div class="group" id="fullBreadthBreakdown" style="display:none;">
+    <div class="group-row">
+      <div><div class="row-label">מעל קו 200</div><div class="row-value green" id="fbAbove">—</div></div>
+      <div><span class="pill green" id="fbAbovePct">—</span></div>
+    </div>
+    <div class="group-row">
+      <div><div class="row-label">מתחת קו 200</div><div class="row-value red" id="fbBelow">—</div></div>
+      <div><span class="pill red" id="fbBelowPct">—</span></div>
+    </div>
+    <div class="group-row">
+      <div><div class="row-label">נבדקו בהצלחה</div><div class="row-value blue" id="fbTotal">—</div></div>
+      <div><span class="pill blue">מתוך 500</span></div>
+    </div>
+  </div>
+
+  <div class="timestamp" id="ts3">—</div>
+
+</div></div>
+
+</div><!-- /pages-wrap -->
+
+<script>
+// Full S&P 500 ticker list
+const SP500 = ["MMM","AOS","ABT","ABBV","ACN","ADBE","AMD","AES","AFL","A","APD","ABNB","AKAM","ALB","ARE","ALGN","ALLE","LNT","ALL","GOOGL","GOOG","MO","AMZN","AMCR","AEE","AEP","AXP","AIG","AMT","AWK","AMP","AME","AMGN","APH","ADI","ANSS","AON","APA","AAPL","AMAT","APTV","ACGL","ADM","ANET","AJG","AIZ","T","ATO","ADSK","ADP","AZO","AVB","AVY","AXON","BKR","BALL","BAC","BAX","BDX","BRK-B","BBY","BIO","TECH","BIIB","BLK","BX","BK","BA","BKNG","BWA","BSX","BMY","AVGO","BR","BRO","BF-B","BLDR","BG","CDNS","CZR","CPT","CPB","COF","CAH","KMX","CCL","CARR","CTLT","CAT","CBOE","CBRE","CDW","CE","COR","CNC","CNP","CF","CHRW","CRL","SCHW","CHTR","CVX","CMG","CB","CHD","CI","CINF","CTAS","CSCO","C","CFG","CLX","CME","CMS","KO","CTSH","CL","CMCSA","CAG","COP","ED","STZ","CEG","COO","CPRT","GLW","CTVA","CSGP","COST","CTRA","CCI","CSX","CMI","CVS","DHR","DRI","DVA","DAY","DECK","DE","DAL","DVN","DXCM","FANG","DLR","DFS","DG","DLTR","D","DPZ","DOV","DOW","DHI","DTE","DUK","DD","EMN","ETN","EBAY","ECL","EIX","EW","EA","ELV","EMR","ENPH","ETR","EOG","EPAM","EQT","EFX","EQIX","EQR","ESS","EL","ETSY","EG","EVRG","ES","EXC","EXPE","EXPD","EXR","XOM","FFIV","FDS","FICO","FAST","FRT","FDX","FIS","FITB","FSLR","FE","FI","FMC","F","FTNT","FTV","FOXA","FOX","BEN","FCX","GRMN","IT","GEHC","GEN","GNRC","GD","GE","GIS","GM","GPC","GILD","GL","GPN","GS","HAL","HIG","HAS","HCA","HSIC","HSY","HES","HPE","HLT","HOLX","HD","HON","HRL","HST","HWM","HPQ","HUBB","HUM","HBAN","HII","IBM","IEX","IDXX","ITW","ILMN","INCY","IR","PODD","INTC","ICE","IFF","IP","IPG","INTU","ISRG","IVZ","INVH","IQV","IRM","JBHT","JBL","JKHY","J","JNJ","JCI","JPM","JNPR","K","KVUE","KDP","KEY","KEYS","KMB","KIM","KMI","KLAC","KHC","KR","LHX","LH","LRCX","LW","LVS","LDOS","LEN","LLY","LIN","LYV","LKQ","LMT","L","LOW","LULU","LYB","MTB","MRO","MPC","MKTX","MAR","MMC","MLM","MAS","MA","MTCH","MKC","MCD","MCK","MDT","MRK","META","MET","MTD","MGM","MCHP","MU","MSFT","MAA","MRNA","MHK","MOH","TAP","MDLZ","MPWR","MNST","MCO","MS","MOS","MSI","MSCI","NDAQ","NTAP","NFLX","NEM","NWSA","NWS","NEE","NKE","NI","NDSN","NSC","NTRS","NOC","NCLH","NRG","NUE","NVDA","NVR","NXPI","ORLY","OXY","ODFL","OMC","ON","OKE","ORCL","OTIS","PCAR","PKG","PANW","PARA","PH","PAYX","PAYC","PYPL","PNR","PEP","PFE","PCG","PM","PSX","PNW","PNC","POOL","PPG","PPL","PFG","PG","PGR","PLD","PRU","PEG","PTC","PSA","PHM","QRVO","PWR","QCOM","DGX","RL","RJF","RTX","O","REG","REGN","RF","RSG","RMD","RVTY","RHI","ROK","ROL","ROP","ROST","RCL","SPGI","CRM","SBAC","SLB","STX","SRE","NOW","SHW","SPG","SWKS","SJM","SNA","SO","LUV","SWK","SBUX","STT","STLD","STE","SYK","SMCI","SYF","SNPS","SYY","TMUS","TROW","TTWO","TPR","TRGP","TGT","TEL","TDY","TFX","TER","TSLA","TXN","TXT","TMO","TJX","TSCO","TT","TDG","TRV","TRMB","TFC","TYL","TSN","USB","UBER","UDR","ULTA","UNP","UAL","UPS","URI","UNH","UHS","VLO","VTR","VLTO","VRSN","VRSK","VZ","VRTX","VTRS","VICI","V","VMC","WAB","WBA","WMT","DIS","WBD","WM","WAT","WEC","WFC","WELL","WST","WDC","WRB","WY","WMB","WTW","GWW","WYNN","XEL","XYL","YUM","ZBRA","ZBH","ZTS"];
+
+let fullBreadthLoaded = false;
+
+async function loadFullBreadth() {
+  const btn = document.getElementById('fullBreadthBtn');
+  btn.disabled = true;
+  btn.textContent = 'טוען... אנא המתן';
+  document.getElementById('fullBreadthProgWrap').style.display = 'block';
+  const progBar = document.getElementById('fullBreadthProg');
+  const progLabel = document.getElementById('fullBreadthProgLabel');
+
+  let above=0, below=0, counted=0, done=0;
+  const total = SP500.length;
+
+  // process in batches of 20 to avoid overwhelming the proxy
+  const BATCH = 20;
+  for (let i=0; i<SP500.length; i+=BATCH) {
+    const chunk = SP500.slice(i, i+BATCH);
+    const results = await Promise.allSettled(
+      chunk.map(sym => fetchYahoo(encodeURIComponent(sym),'300d','1d'))
+    );
+    results.forEach(r => {
+      done++;
+      if (r.status!=='fulfilled') return;
+      const cl = r.value?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
+      if (cl.length < 200) return;
+      const price = cl[cl.length-1];
+      const sma = cl.slice(-200).reduce((a,b)=>a+b,0)/200;
+      counted++;
+      if (price > sma) above++; else below++;
+    });
+    const pct = Math.round((done/total)*100);
+    progBar.style.width = pct + '%';
+    progLabel.textContent = `נטענו ${done} מתוך ${total} (${counted} בהצלחה)`;
+  }
+
+  if (counted < 50) {
+    document.getElementById('fullBreadthLabel').textContent = 'טעינה נכשלה — נסה שוב';
+    btn.disabled = false; btn.textContent = 'נסה שוב';
+    return;
+  }
+
+  const breadth = Math.round((above/counted)*100);
+  const color = breadth>=60?'green':breadth>=45?'amber':'red';
+  const scoreEl = document.getElementById('fullBreadthScore');
+  scoreEl.textContent = breadth + '%';
+  scoreEl.className = 'risk-score ' + color;
+  const labels = {green:'רוחב שוק בריא — רוב המניות מעל הקו',amber:'רוחב שוק בינוני — היזהר',red:'רוחב שוק חלש — השוק על גב מעט מניות'};
+  document.getElementById('fullBreadthLabel').textContent = labels[color];
+  document.getElementById('fullBreadthBar').style.width = (100-breadth) + '%';
+  document.getElementById('fullBreadthDesc').textContent =
+    `${above} מתוך ${counted} מניות נמצאות מעל קו ה-200 שלהן. מתחת ל-50% = סימן חולשה פנימית, גם אם המדד עצמו עולה.`;
+
+  document.getElementById('fullBreadthBreakdown').style.display = 'block';
+  document.getElementById('fbAbove').textContent = above;
+  document.getElementById('fbAbovePct').textContent = Math.round((above/counted)*100) + '%';
+  document.getElementById('fbBelow').textContent = below;
+  document.getElementById('fbBelowPct').textContent = Math.round((below/counted)*100) + '%';
+  document.getElementById('fbTotal').textContent = counted;
+
+  document.getElementById('fullBreadthProgWrap').style.display = 'none';
+  btn.style.display = 'none';
+  fullBreadthLoaded = true;
+  tsNow('ts3');
+}
+</script>
+
+<script>
+// ═══════════════════════
+// PAGE DETECTION (native scroll-snap)
+// ═══════════════════════
+let currentPage = 0;
+const pagesWrap = document.getElementById('pagesWrap');
+
+// RTL: page 0 is rightmost. scrollLeft is negative or reversed in RTL.
+function goToPage(n) {
+  const pageWidth = window.innerWidth;
+  // In RTL, scroll position for page n
+  pagesWrap.scrollTo({ left: -(n * pageWidth), behavior: 'smooth' });
+}
+
+let scrollTimer = null;
+pagesWrap.addEventListener('scroll', () => {
+  clearTimeout(scrollTimer);
+  scrollTimer = setTimeout(() => {
+    const pageWidth = window.innerWidth;
+    // RTL scroll: scrollLeft is 0 at rightmost (page 0), negative going left
+    const n = Math.round(Math.abs(pagesWrap.scrollLeft) / pageWidth);
+    if (n !== currentPage) {
+      currentPage = n;
+      document.querySelectorAll('.page-dot').forEach((d,i) => d.classList.toggle('active', i===n));
+      if (n===1 && !macroLoaded) loadMacro();
+      if (n===2 && !pricesLoaded) loadPrices();
+      // page 3 (full breadth) loads on button press, not auto
+    }
+  }, 80);
+}, {passive:true});
+
+// ═══════════════════════
+// HELPERS
+// ═══════════════════════
+function fmt(n, dec=2) { return n.toLocaleString('he-IL',{minimumFractionDigits:dec,maximumFractionDigits:dec}); }
+
+async function fetchYahoo(symbol, range, interval) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=${interval}&includePrePost=false`;
+  const proxies = [
+    `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`
+  ];
+  for (const proxy of proxies) {
+    try {
+      const res = await fetch(proxy, {signal: AbortSignal.timeout(9000)});
+      if (!res.ok) continue;
+      const text = await res.text();
+      try { const o = JSON.parse(text); return o.contents ? JSON.parse(o.contents) : o; }
+      catch { return JSON.parse(text); }
+    } catch(e) { continue; }
+  }
+  throw new Error('שגיאת חיבור');
+}
+
+async function fetchSinglePrice(symbol) {
+  try {
+    const data = await fetchYahoo(symbol, '5d', '1d');
+    const result = data?.chart?.result?.[0];
+    if (!result) return null;
+    const closes = result.indicators.quote[0].close.filter(c=>c!=null);
+    const price = closes[closes.length-1];
+    const prev  = closes[closes.length-2];
+    const change = ((price-prev)/prev)*100;
+    return { price, change };
+  } catch { return null; }
+}
+
+function calcSMA(arr, n) {
+  if (arr.length < n) return null;
+  return arr.slice(-n).reduce((a,b)=>a+b,0)/n;
+}
+
+function tsNow(elId) {
+  const now = new Date();
+  document.getElementById(elId).textContent =
+    `עודכן: ${now.toLocaleDateString('he-IL')} · ${now.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})}`;
+}
+
+// ═══════════════════════
+// PAGE 1 — SMA
+// ═══════════════════════
+let belowStreak = 0;
+function saveStreak(n) { try{localStorage.setItem('sma_streak',String(n));}catch(e){} }
+function loadStreak()  { try{return parseInt(localStorage.getItem('sma_streak')||'0',10);}catch(e){return 0;} }
+
+function setVerdict(type, icon, title, body) {
+  const c = document.getElementById('verdictCard');
+  c.className = 'verdict ' + type;
+  document.getElementById('verdictIcon').textContent  = icon;
+  document.getElementById('verdictTitle').textContent = title;
+  document.getElementById('verdictBody').textContent  = body;
+}
+
+function renderStreak(streak, isBelow) {
+  const dots = document.getElementById('streakDots');
+  const verdict = document.getElementById('streakVerdict');
+  let html = '';
+  for (let i=1;i<=3;i++) html += `<div class="dot${isBelow&&streak>=i?' below':''}">${i}</div>`;
+  dots.innerHTML = html;
+  if (!isBelow) { verdict.textContent='S&P מעל קו 200 — אין סיגנל יציאה'; verdict.className='streak-verdict'; }
+  else if (streak===1) { verdict.textContent='יום 1 מתחת — המתן, עוד 2 ימים לסיגנל'; verdict.className='streak-verdict'; }
+  else if (streak===2) { verdict.textContent='⚠️ יום 2 — אם מחר גם מתחת, צא מהמניות'; verdict.className='streak-verdict alert'; }
+  else { verdict.textContent='🚨 יום 3 — צא עכשיו מה-40% מניות'; verdict.className='streak-verdict alert'; }
+}
+
+function drawChart(labels, prices, sma200s, curPrice, curSMA) {
+  const canvas = document.getElementById('smaChart');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.offsetWidth, h = 150;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  ctx.scale(dpr, dpr);
+  // extra right padding for labels
+  const pad = {t:16,r:74,b:16,l:10};
+  const allVals = [...prices, ...sma200s.filter(Boolean)];
+  const minV = Math.min(...allVals) * 0.995;
+  const maxV = Math.max(...allVals) * 1.005;
+  const xScale = i => pad.l + (i/(prices.length-1)) * (w - pad.l - pad.r);
+  const yScale = v => pad.t + (1 - (v-minV)/(maxV-minV)) * (h - pad.t - pad.b);
+  const lastBelow = prices[prices.length-1] < sma200s[sma200s.length-1];
+  const priceColor = lastBelow ? '#ff3b30' : '#34c759';
+
+  // fill under price line
+  ctx.beginPath();
+  prices.forEach((p,i) => i===0 ? ctx.moveTo(xScale(i),yScale(p)) : ctx.lineTo(xScale(i),yScale(p)));
+  ctx.lineTo(xScale(prices.length-1), h-pad.b);
+  ctx.lineTo(xScale(0), h-pad.b);
+  ctx.closePath();
+  const grad = ctx.createLinearGradient(0,0,0,h);
+  grad.addColorStop(0, lastBelow ? 'rgba(255,59,48,0.16)' : 'rgba(52,199,89,0.16)');
+  grad.addColorStop(1, 'rgba(52,199,89,0)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // SMA200 line
+  ctx.beginPath();
+  let first = true, lastSmaX=0, lastSmaY=0;
+  sma200s.forEach((s,i) => {
+    if (s==null) return;
+    const x=xScale(i), y=yScale(s);
+    first ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    first = false; lastSmaX=x; lastSmaY=y;
+  });
+  ctx.strokeStyle = '#007aff'; ctx.lineWidth = 1.5; ctx.setLineDash([4,3]); ctx.stroke(); ctx.setLineDash([]);
+
+  // Price line
+  ctx.beginPath();
+  prices.forEach((p,i) => i===0 ? ctx.moveTo(xScale(i),yScale(p)) : ctx.lineTo(xScale(i),yScale(p)));
+  ctx.strokeStyle = priceColor; ctx.lineWidth = 2.5; ctx.stroke();
+
+  const lastPriceX = xScale(prices.length-1);
+  const lastPriceY = yScale(prices[prices.length-1]);
+
+  // helper to draw a dot + label to its right
+  function drawDot(x, y, color, text) {
+    // dot
+    ctx.beginPath(); ctx.arc(x, y, 4.5, 0, Math.PI*2);
+    ctx.fillStyle = color; ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+    // label
+    ctx.font = '700 13px Heebo, sans-serif';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = color;
+    ctx.fillText(text, x + 8, y);
+  }
+
+  // Avoid label overlap: if dots are close, nudge vertically
+  let pY = lastPriceY, sY = lastSmaY;
+  if (Math.abs(pY - sY) < 16) { if (pY < sY) { pY -= 8; sY += 8; } else { pY += 8; sY -= 8; } }
+
+  drawDot(lastSmaX, lastSmaY, '#007aff', fmt(curSMA,0));
+  drawDot(lastPriceX, lastPriceY, priceColor, fmt(curPrice,0));
+}
+
+async function loadSMA() {
+  
+  document.getElementById('errorBox').style.display = 'none';
+  belowStreak = loadStreak();
+  try {
+    const data = await fetchYahoo('%5EGSPC','300d','1d');
+    const result = data?.chart?.result?.[0];
+    if (!result) throw new Error('אין נתונים');
+    const closes = result.indicators.quote[0].close.filter(c=>c!=null);
+    if (closes.length < 202) throw new Error('אין מספיק נתונים');
+    const price = closes[closes.length-1];
+    const prev  = closes[closes.length-2];
+    const sma200 = calcSMA(closes, 200);
+    const isBelow = price < sma200;
+    const change = ((price-prev)/prev)*100;
+    const gapPct = ((price-sma200)/sma200)*100;
+
+    if (isBelow) {
+      const today = new Date().toDateString();
+      const lastDay = localStorage.getItem('sma_streak_day')||'';
+      if (today !== lastDay) { belowStreak=Math.min(belowStreak+1,3); localStorage.setItem('sma_streak_day',today); saveStreak(belowStreak); }
+    } else { belowStreak=0; saveStreak(0); try{localStorage.removeItem('sma_streak_day');}catch(e){} }
+
+    const c = isBelow?'red':'green';
+    document.getElementById('spChange').innerHTML = `<span class="${change>=0?'up':'down'}">${change>=0?'+':''}${fmt(change)}% היום</span>`;
+    document.getElementById('spBadge').innerHTML = isBelow?'<span class="pill red">מתחת לקו 200</span>':'<span class="pill green">מעל קו 200</span>';
+    renderStreak(belowStreak, isBelow);
+
+    if (!isBelow) setVerdict('hold','✅','החזק מניות',`S&P ב-${fmt(price,0)}, מעל קו 200 ב-${fmt(sma200,0)}. המשך להחזיק את ה-40%.`);
+    else if (belowStreak>=3) setVerdict('exit','🚨','צא עכשיו','שלושה ימים רצופים מתחת לקו 200. מכור את כל ה-40% מניות. ללא היסוסים.');
+    else setVerdict('watch','⚠️',`יום ${belowStreak} מתחת`,`S&P מתחת לקו. ${3-belowStreak} ימים נוספים עד לסיגנל יציאה.`);
+
+    // Chart — last 120 trading days
+    const chartCloses = closes.slice(-120);
+    const sma200arr = chartCloses.map((_,i) => {
+      const idx = closes.length - 120 + i;
+      if (idx < 200) return null;
+      return calcSMA(closes.slice(0, idx+1), 200);
+    });
+    drawChart([], chartCloses, sma200arr, price, sma200);
+    tsNow('ts0');
+  } catch(err) {
+    document.getElementById('errorBox').textContent=`שגיאה: ${err.message}`;
+    document.getElementById('errorBox').style.display='block';
+    setVerdict('load','📡','לא זמין','לחץ רענן.');
+  }
+  
+}
+
+// ═══════════════════════
+// PAGE 2 — MACRO
+// ═══════════════════════
+let macroLoaded = false;
+
+function colorFor(value, greenMax, amberMax) {
+  if (value <= greenMax) return 'green';
+  if (value <= amberMax) return 'amber';
+  return 'red';
+}
+
+function badgeLabel(color) {
+  return color==='green'?'תקין':color==='amber'?'זהירות':'סיכון';
+}
+
+function macroCardHTML(name, value, displayValue, normalText, pct, color, desc) {
+  return `
+  <div class="macro-card">
+    <div class="macro-bar-left ${color}"></div>
+    <div class="macro-body">
+      <div class="macro-top">
+        <div class="macro-name">${name}</div>
+        <div class="macro-badge ${color}">${badgeLabel(color)}</div>
+      </div>
+      <div class="macro-value-row">
+        <div class="macro-value ${color}">${displayValue}</div>
+        <div class="macro-normal">(נורמלי: ${normalText})</div>
+      </div>
+      <div class="macro-desc">${desc}</div>
+    </div>
+  </div>`;
+}
+
+function updateRiskMeter(indicators) {
+  // Weighted score 0-100. Each indicator: red=85, amber=50, green=20 points.
+  // Weighted by importance: CAPE/Buffett/YieldCurve=3, Concentration/Savings=2, daily=1.
+  const pts = c => c==='red'?85 : c==='amber'?50 : 20;
+  let weightedSum = 0, totalWeight = 0;
+  indicators.forEach(ind => {
+    const w = ind.weight || 1;
+    weightedSum += pts(ind.color) * w;
+    totalWeight += w;
+  });
+  const avg = Math.round(weightedSum / totalWeight);
+  const el = document.getElementById('riskScore');
+  el.textContent = avg;
+  const color = avg>=65?'red':avg>=40?'amber':'green';
+  el.className = 'risk-score ' + color;
+  const labels = {red:'סיכון גבוה — שמור על גישה הגנתית',amber:'סיכון מתון — ערנות מוגברת',green:'סביבה נורמלית — ניתן לפעול כרגיל'};
+  document.getElementById('riskLabel').textContent = labels[color];
+  document.getElementById('riskBarMask').style.width = (100-avg) + '%';
+  const reds = indicators.filter(i=>i.color==='red').length;
+  const ambers = indicators.filter(i=>i.color==='amber').length;
+  document.getElementById('riskDesc').innerHTML =
+    `${reds} מדדים באדום, ${ambers} בכתום מתוך ${indicators.length}. ` +
+    `<br><span style="font-size:12px;color:var(--muted)">החישוב משוקלל: CAPE, מדד באפט ועקום התשואות מקבלים משקל כפול-משולש משאר המדדים, כי הם מנבאים חזקים יותר לטווח ארוך.</span>`;
+}
+
+function yieldCurveCardHTML(spread, color, desc, daysSince) {
+  const val = spread===null ? 'הפוך/התיישר' : (spread>=0?'+':'')+spread+'%';
+  let bannerBig;
+  if (spread===null) bannerBig='⏳ אחרי התיישרות';
+  else if (spread<0) bannerBig='🔻 העקום הפוך';
+  else if (daysSince!==null && daysSince<=210) bannerBig=`⏳ ${daysSince} ימים מאז ההתיישרות`;
+  else if (daysSince!==null) bannerBig='⚠️ אחרי חלון הסיכון';
+  else bannerBig='✅ מבנה תקין';
+  return `
+  <div class="macro-card" style="flex-direction:column;gap:0;">
+    <div style="display:flex;align-items:stretch;gap:14px;width:100%;">
+      <div class="macro-bar-left ${color}"></div>
+      <div class="macro-body">
+        <div class="macro-top">
+          <div class="macro-name">עקום תשואות — מד מיתון</div>
+          <div class="macro-badge ${color}">${badgeLabel(color)}</div>
+        </div>
+        <div class="macro-value-row">
+          <div class="macro-value ${color}">${val}</div>
+          <div class="macro-normal">הפרש הריביות (10 שנים פחות 3 חודשים)</div>
+        </div>
+      </div>
+    </div>
+    <canvas id="yieldChart" height="150" style="margin-top:10px;"></canvas>
+    <div class="yc-banner ${color}">
+      <div class="yc-banner-big ${color}">${bannerBig}</div>
+      <div class="yc-banner-text">${desc}</div>
+    </div>
+    <div class="yc-timeline" id="ycTimeline"></div>
+  </div>`;
+}
+
+function drawYieldChart(spreads, crossIdx) {
+  setTimeout(() => {
+    const canvas = document.getElementById('yieldChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio||1;
+    const w = canvas.offsetWidth, h = 150;
+    canvas.width=w*dpr; canvas.height=h*dpr; ctx.scale(dpr,dpr);
+    const pad={t:16,r:56,b:14,l:10};
+    const vals=spreads.map(s=>s.v);
+    const minV=Math.min(...vals,-0.5), maxV=Math.max(...vals,1);
+    const xS=i=>pad.l+(i/(spreads.length-1))*(w-pad.l-pad.r);
+    const yS=v=>pad.t+(1-(v-minV)/(maxV-minV))*(h-pad.t-pad.b);
+    const zeroY=yS(0);
+
+    // red shade below zero
+    ctx.fillStyle='rgba(255,59,48,0.10)';
+    ctx.fillRect(pad.l,zeroY,w-pad.l-pad.r,(h-pad.b)-zeroY);
+    // zero line
+    ctx.beginPath();ctx.moveTo(pad.l,zeroY);ctx.lineTo(w-pad.r,zeroY);
+    ctx.strokeStyle='rgba(255,59,48,0.45)';ctx.lineWidth=1.5;ctx.setLineDash([4,3]);ctx.stroke();ctx.setLineDash([]);
+    ctx.font='600 9px Heebo,sans-serif';ctx.fillStyle='#ff3b30';ctx.textAlign='left';ctx.textBaseline='top';
+    ctx.fillText('קו 0 — מתחת = היפוך',pad.l+3,zeroY+3);
+
+    // un-inversion vertical green line
+    if(crossIdx>0){
+      const cx=xS(crossIdx);
+      ctx.beginPath();ctx.moveTo(cx,pad.t);ctx.lineTo(cx,h-pad.b);
+      ctx.strokeStyle='#34c759';ctx.lineWidth=2;ctx.stroke();
+      ctx.font='700 9px Heebo,sans-serif';ctx.fillStyle='#34c759';ctx.textAlign='center';ctx.textBaseline='top';
+      ctx.fillText('התיישרות',cx,pad.t-2);
+    }
+
+    // spread line
+    ctx.beginPath();
+    spreads.forEach((s,i)=> i===0?ctx.moveTo(xS(i),yS(s.v)):ctx.lineTo(xS(i),yS(s.v)));
+    ctx.strokeStyle='#007aff'; ctx.lineWidth=2.5; ctx.stroke();
+
+    // current dot + label
+    const cur=spreads[spreads.length-1].v;
+    const lx=xS(spreads.length-1), ly=yS(cur);
+    ctx.beginPath(); ctx.arc(lx,ly,5,0,Math.PI*2);
+    ctx.fillStyle = cur<0?'#ff3b30':'#007aff'; ctx.fill();
+    ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.stroke();
+    ctx.font='700 13px Heebo,sans-serif'; ctx.fillStyle=cur<0?'#ff3b30':'#007aff';
+    ctx.textAlign='left'; ctx.textBaseline='middle';
+    ctx.fillText((cur>=0?'+':'')+cur.toFixed(2)+'%', lx+9, ly);
+  }, 40);
+}
+
+function renderYieldTimeline(activeIdx) {
+  setTimeout(() => {
+    const el = document.getElementById('ycTimeline');
+    if (!el) return;
+    const steps=[
+      {icon:'📈',name:'נורמלי',col:'green'},
+      {icon:'🔻',name:'היפוך',col:'amber'},
+      {icon:'↩️',name:'התיישרות',col:'red'},
+      {icon:'⏳',name:'חלון סכנה',col:'red'},
+      {icon:'💥',name:'מיתון',col:'red'},
+    ];
+    let html='';
+    steps.forEach((s,i)=>{
+      html+=`<div class="yc-step ${i===activeIdx?'active '+s.col:''}"><div class="yc-step-icon">${s.icon}</div><div class="yc-step-name">${s.name}</div></div>`;
+      if(i<steps.length-1) html+=`<div class="yc-step-arrow">‹</div>`;
+    });
+    el.innerHTML=html;
+  }, 40);
+}
+
+async function loadMacro() {
+  macroLoaded = true;
+  document.getElementById('macroValuation').innerHTML = '';
+  document.getElementById('macroMarket').innerHTML = '';
+  document.getElementById('macroEcon').innerHTML = '';
+  const indicators = [];
+
+  // 1. CAPE — static (monthly, from multpl.com — last known value)
+  const cape = 37.2;
+  const capeColor = colorFor(cape, 20, 30);
+  const capePct = Math.min(100, (cape/50)*100);
+  indicators.push({color:capeColor, weight:3, name:'CAPE שילר'});
+  document.getElementById('macroValuation').innerHTML +=
+    macroCardHTML('CAPE שילר', cape, cape.toFixed(1), '15–20', capePct, capeColor,
+      'יחס מחיר/רווח מתוקנן מחזורית. מעל 30 מסמן תמחור יתר היסטורי. כרגע ברמה השנייה הגבוהה בהיסטוריה.');
+
+  // 2. Buffett Indicator — approximate from market cap / GDP
+  // Using Wilshire5000 proxy via ^W5000 divided by ~30T GDP
+  try {
+    const wData = await fetchYahoo('%5EW5000','5d','1d');
+    const wResult = wData?.chart?.result?.[0];
+    const wCloses = wResult?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
+    const w5000 = wCloses[wCloses.length-1];
+    const gdpB = 29500; // US GDP ~$29.5T in billions
+    const buffett = w5000 ? Math.round((w5000/gdpB)*100) : 200;
+    const buffColor = colorFor(buffett, 100, 150);
+    const buffPct = Math.min(100,(buffett/250)*100);
+    indicators.push({color:buffColor, weight:3, name:'מדד באפט'});
+    document.getElementById('macroValuation').innerHTML +=
+      macroCardHTML('מדד באפט', buffett, buffett+'%', '75–100%', buffPct, buffColor,
+        'שווי שוק מניות אמריקאי כאחוז מהתוצר. מעל 150% = תמחור יתר. מעל 200% = קיצוני.');
+  } catch {
+    indicators.push({color:'red', weight:3, name:'מדד באפט'});
+    document.getElementById('macroValuation').innerHTML +=
+      macroCardHTML('מדד באפט','—','~200%','75–100%',80,'red','שווי שוק חצה 200% מהתוצר — רמה קיצונית.');
+  }
+
+  // 3. Yield Curve — un-inversion timing model (10Y minus 3M)
+  try {
+    const [d10,d3m] = await Promise.all([
+      fetchYahoo('%5ETNX','2y','1wk'),
+      fetchYahoo('%5EIRX','2y','1wk')
+    ]);
+    const getSer = d => { const r=d?.chart?.result?.[0]; const ts=r?.timestamp||[]; const cl=(r?.indicators?.quote?.[0]?.close||[]); const out=[]; for(let i=0;i<ts.length;i++) if(cl[i]!=null) out.push({t:ts[i],v:cl[i]}); return out; };
+    const s10 = getSer(d10), s3 = getSer(d3m);
+    const nn = Math.min(s10.length, s3.length);
+    const spreads = [];
+    for (let i=0;i<nn;i++) spreads.push({t:s10[s10.length-nn+i].t, v:s10[s10.length-nn+i].v - s3[s3.length-nn+i].v});
+    const cur = parseFloat(spreads[spreads.length-1].v.toFixed(2));
+
+    // find last un-inversion (negative -> positive crossing)
+    let crossIdx=-1;
+    for(let i=spreads.length-1;i>0;i--){ if(spreads[i].v>=0 && spreads[i-1].v<0){crossIdx=i;break;} }
+    let daysSince = crossIdx>0 ? Math.round((spreads[spreads.length-1].t - spreads[crossIdx].t)/86400) : null;
+    const everInverted = spreads.some(s=>s.v<0);
+
+    let ycColor, ycDesc, stepIdx;
+    if (cur < 0) {
+      ycColor='amber'; stepIdx=1;
+      ycDesc='הריבית הקצרה גבוהה מהארוכה (היפוך). אזהרה מוקדמת — מיתון בדרך כלל מגיע רק כשהעקום מתיישר חזרה.';
+    } else if (daysSince!==null && daysSince<=210) {
+      ycColor='red'; stepIdx = daysSince<=49 ? 2 : 3;
+      ycDesc=`העקום התהפך וכבר חזר לחיובי לפני ${daysSince} ימים. <b>זהו השלב המסוכן ביותר</b> — היסטורית מיתון פרץ 49–210 ימים אחרי ההתיישרות (ממוצע ~131). אנחנו בתוך חלון הסיכון.`;
+    } else if (everInverted && daysSince!==null) {
+      ycColor='amber'; stepIdx=3;
+      ycDesc=`חלפו ${daysSince} ימים מאז ההתיישרות — מעבר לחלון ההיסטורי (210 יום). הסיכון קיים אך האיתות פחות חד.`;
+    } else {
+      ycColor='green'; stepIdx=0;
+      ycDesc='העקום חיובי, לא היה היפוך לאחרונה. אין אזהרת מיתון מצד עקום התשואות.';
+    }
+    indicators.push({color:ycColor, weight:3, name:'עקום תשואות'});
+    document.getElementById('macroMarket').innerHTML += yieldCurveCardHTML(cur, ycColor, ycDesc, daysSince);
+    drawYieldChart(spreads, crossIdx);
+    renderYieldTimeline(stepIdx);
+  } catch(e) {
+    indicators.push({color:'red', weight:3, name:'עקום תשואות'});
+    document.getElementById('macroMarket').innerHTML += yieldCurveCardHTML(null, 'red', 'העקום התהפך לאחרונה וחזר לחיובי — שלב מסוכן היסטורית.', null);
+  }
+
+  // 4. VIX
+  try {
+    const vData = await fetchYahoo('%5EVIX','5d','1d');
+    const vResult = vData?.chart?.result?.[0];
+    const vCloses = vResult?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
+    const vix = vCloses[vCloses.length-1];
+    const vixColor = colorFor(vix, 18, 28);
+    const vixPct = Math.min(100,(vix/50)*100);
+    indicators.push({color:vixColor, weight:1, name:'VIX'});
+    document.getElementById('macroMarket').innerHTML +=
+      macroCardHTML('VIX — מדד הפחד', vix, vix.toFixed(1), '12–18', vixPct, vixColor,
+        'תנודתיות צפויה ב-30 יום. מתחת 18 = שאננות. מעל 30 = פאניקה. מעל 40 = משבר.');
+  } catch {
+    indicators.push({color:'amber', weight:1, name:'VIX'});
+  }
+
+  // 5. Gold
+  try {
+    const gData = await fetchYahoo('GC%3DF','5d','1d');
+    const gResult = gData?.chart?.result?.[0];
+    const gCloses = gResult?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
+    const gold = gCloses[gCloses.length-1];
+    const goldPrev = gCloses[gCloses.length-2];
+    const goldChg = ((gold-goldPrev)/goldPrev)*100;
+    // Gold rising sharply = risk signal
+    const goldColor = gold > 2800 ? 'red' : gold > 2400 ? 'amber' : 'green';
+    const goldPct = Math.min(100,(gold/3500)*100);
+    indicators.push({color:goldColor, weight:1, name:'זהב'});
+    document.getElementById('macroMarket').innerHTML +=
+      macroCardHTML('זהב ($/אונקיה)', gold, '$'+fmt(gold,0), '$1,500–$2,000', goldPct, goldColor,
+        `זהב גבוה = חוסר אמון במערכת. שינוי יומי: ${goldChg>=0?'+':''}${goldChg.toFixed(2)}%.`);
+  } catch {
+    indicators.push({color:'amber', weight:1, name:'זהב'});
+  }
+
+  // 6. DXY
+  try {
+    const dxyData = await fetchYahoo('DX-Y.NYB','5d','1d');
+    const dxyResult = dxyData?.chart?.result?.[0];
+    const dxyCloses = dxyResult?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
+    const dxy = dxyCloses[dxyCloses.length-1];
+    const dxyColor = dxy > 105 ? 'red' : dxy > 100 ? 'amber' : 'green';
+    const dxyPct = Math.min(100,(dxy/120)*100);
+    indicators.push({color:dxyColor, weight:1, name:'DXY'});
+    document.getElementById('macroMarket').innerHTML +=
+      macroCardHTML('דולר — מדד DXY', dxy, dxy.toFixed(1), '95–102', dxyPct, dxyColor,
+        'דולר חזק מדי = לחץ על שווקים מתפתחים ועל רווחי חברות רב-לאומיות אמריקאיות.');
+  } catch {
+    indicators.push({color:'amber', weight:1, name:'DXY'});
+  }
+
+  // 7. Oil
+  try {
+    const oilData = await fetchYahoo('CL%3DF','5d','1d');
+    const oilResult = oilData?.chart?.result?.[0];
+    const oilCloses = oilResult?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
+    const oil = oilCloses[oilCloses.length-1];
+    const oilColor = oil > 100 ? 'red' : oil > 80 ? 'amber' : 'green';
+    const oilPct = Math.min(100,(oil/130)*100);
+    indicators.push({color:oilColor, weight:1, name:'נפט'});
+    document.getElementById('macroEcon').innerHTML +=
+      macroCardHTML('נפט WTI ($/חבית)', oil, '$'+oil.toFixed(1), '$60–$80', oilPct, oilColor,
+        'נפט יקר = אינפלציה חוזרת + לחץ על הפד לעצור הורדות ריבית.');
+  } catch {
+    indicators.push({color:'amber', weight:1, name:'נפט'});
+  }
+
+  // 8. Market Breadth — % of large stocks above their own SMA200
+  try {
+    const basket = ['AAPL','MSFT','NVDA','AMZN','GOOGL','META','TSLA','BRK-B','JPM','V',
+      'UNH','XOM','JNJ','WMT','MA','PG','HD','CVX','MRK','KO',
+      'PEP','COST','ABBV','BAC','AVGO','LLY','ADBE','CRM','ACN','MCD',
+      'TMO','CSCO','ABT','DHR','LIN','TXN','NEE','VZ','NKE','PM',
+      'WFC','DIS','INTC','CMCSA','AMD','INTU','QCOM','UPS','HON','COP',
+      'CAT','LOW','IBM','GS','SPGI','RTX','AMGN','BA','DE','PFE',
+      'NOW','GE','BKNG','PLD','ELV','SBUX','MDT','GILD','ADP','TJX',
+      'AXP','MDLZ','VRTX','CB','LRCX','MMC','SYK','C','MO','REGN',
+      'ZTS','SO','BSX','PGR','DUK','SLB','EOG','CME','MU','BDX',
+      'AON','ITW','APD','KLAC','SHW','MCK','CL','FCX','EMR','NSC'];
+    const results = await Promise.allSettled(
+      basket.map(sym => fetchYahoo(encodeURIComponent(sym),'300d','1d'))
+    );
+    let above=0, counted=0;
+    results.forEach(r => {
+      if (r.status!=='fulfilled') return;
+      const cl = r.value?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
+      if (cl.length < 200) return;
+      const price = cl[cl.length-1];
+      const sma = cl.slice(-200).reduce((a,b)=>a+b,0)/200;
+      counted++;
+      if (price > sma) above++;
+    });
+    if (counted >= 30) {
+      const breadth = Math.round((above/counted)*100);
+      const bColor = breadth >= 60 ? 'green' : breadth >= 45 ? 'amber' : 'red';
+      indicators.push({color:bColor, weight:2, name:'רוחב שוק'});
+      document.getElementById('macroMarket').innerHTML +=
+        macroCardHTML('רוחב שוק', breadth, breadth+'%', 'מעל 60%', breadth, bColor,
+          `אחוז מ-${counted} המניות הגדולות ב-S&P שנמצאות מעל קו ה-200 שלהן. מתחת ל-50% = השוק עולה על גב מעט מניות בלבד, סימן חולשה פנימית.`);
+    }
+  } catch(e) { /* skip if fails */ }
+
+  // 9. Concentration risk — static
+  const concColor = 'red';
+  indicators.push({color:concColor, weight:2, name:'ריכוז שוק'});
+  document.getElementById('macroEcon').innerHTML +=
+    macroCardHTML('ריכוז שוק — TOP 7', 30, '~30%', '15–20%', 80, concColor,
+      'כמה מה-S&P 500 תלוי במעט חברות. כיום 7 חברות הטכנולוגיה הגדולות (אפל, מיקרוסופט, נבידיה ועוד) = כ-30% מכל המדד. אם אחת מהן נופלת — כל המדד נגרר מטה. ככל שהמספר גבוה, הפיזור קטן והסיכון גדל.');
+
+  // 10. Consumer savings rate — static monthly
+  const savColor = 'amber';
+  indicators.push({color:savColor, weight:2, name:'חיסכון'});
+  document.getElementById('macroEcon').innerHTML +=
+    macroCardHTML('שיעור חיסכון צרכני', 3.5, '3.5%', '5%–8%', 35, savColor,
+      'שיעור חיסכון נמוך היסטורית. הצרכן חי על אשראי — כלכלה פגיעה לזעזועים.');
+
+  updateRiskMeter(indicators);
+  tsNow('ts1');
+  
+}
+
+// ═══════════════════════
+// PAGE 3 — LIVE PRICES
+// ═══════════════════════
+let pricesLoaded = false;
+
+function priceRow(label, data, suffix='') {
+  if (!data) return `<div class="group-row"><div class="row-label">${label}</div><div><span class="pill muted">—</span></div></div>`;
+  const c = data.change>=0?'green':'red';
+  const sign = data.change>=0?'+':'';
+  return `
+  <div class="group-row">
+    <div>
+      <div class="row-label">${label}</div>
+      <div class="row-value ${c}">${suffix}${fmt(data.price, data.price>100?0:2)}</div>
+    </div>
+    <div><span class="pill ${c}">${sign}${fmt(data.change)}%</span></div>
+  </div>`;
+}
+
+async function loadPrices() {
+  pricesLoaded = true;
+  
+
+  const [nasdaq, dji, ta125, gold, oil, btc, y10, y2, y30, usdils, eurusd] = await Promise.allSettled([
+    fetchSinglePrice('%5EIXIC'),
+    fetchSinglePrice('%5EDJI'),
+    fetchSinglePrice('TA125.TA'),
+    fetchSinglePrice('GC%3DF'),
+    fetchSinglePrice('CL%3DF'),
+    fetchSinglePrice('BTC-USD'),
+    fetchSinglePrice('%5ETNX'),
+    fetchSinglePrice('%5EIRX'),
+    fetchSinglePrice('%5ETYX'),
+    fetchSinglePrice('ILS%3DX'),
+    fetchSinglePrice('EURUSD%3DX'),
+  ]);
+
+  const v = r => r.status==='fulfilled'?r.value:null;
+
+  document.getElementById('priceMarkets').innerHTML =
+    priceRow('Nasdaq', v(nasdaq)) +
+    priceRow('Dow Jones', v(dji)) +
+    priceRow('ת"א 125', v(ta125));
+
+  document.getElementById('priceSafehaven').innerHTML =
+    priceRow('זהב ($/אונקיה)', v(gold), '$') +
+    priceRow('נפט WTI ($/חבית)', v(oil), '$') +
+    priceRow('Bitcoin', v(btc), '$');
+
+  document.getElementById('priceBonds').innerHTML =
+    priceRow('אג"ח 10 שנים', v(y10)) +
+    priceRow('אג"ח 2 שנים', v(y2)) +
+    priceRow('אג"ח 30 שנים', v(y30));
+
+  document.getElementById('priceFx').innerHTML =
+    priceRow('דולר/שקל', v(usdils)) +
+    priceRow('יורו/דולר', v(eurusd)) +
+    priceRow('מדד דולר DXY', await fetchSinglePrice('DX-Y.NYB').catch(()=>null));
+
+  tsNow('ts2');
+  
+}
+
+// ═══════════════════════
+// INIT + AUTO-REFRESH
+// ═══════════════════════
+loadSMA();
+
+// Auto-refresh every minute — only the page currently visible
+setInterval(() => {
+  if (currentPage === 0) loadSMA();
+  else if (currentPage === 1) { macroLoaded = false; loadMacro(); }
+  else if (currentPage === 2) { pricesLoaded = false; loadPrices(); }
+}, 60 * 1000);
+
+// Refresh when app regains focus (e.g. switching back to Safari tab)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    if (currentPage === 0) loadSMA();
+    else if (currentPage === 1) { macroLoaded = false; loadMacro(); }
+    else if (currentPage === 2) { pricesLoaded = false; loadPrices(); }
+  }
+});
+</script>
+</body>
+</html>
