@@ -502,7 +502,7 @@ pagesWrap.addEventListener('scroll', () => {
     if (n !== currentPage) {
       currentPage = n;
       document.querySelectorAll('.page-dot').forEach((d,i) => d.classList.toggle('active', i===n));
-      if (n===1) loadMacro();   // reloads on each open; busy-guard blocks overlap
+      if (n===1 && !macroLoaded) loadMacro();   // loads once; stays stable after
       if (n===2 && !pricesLoaded) loadPrices();
       // page 3 (full breadth) loads on button press, not auto
     }
@@ -520,8 +520,10 @@ async function fetchYahoo(symbol, range, interval) {
   // includePrePost=true so we get live extended-hours prices too
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=${interval}&includePrePost=true&_=${bust}`;
   const proxies = [
-    `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+    `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`,
     `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    `https://thingproxy.freeboard.io/fetch/${url}`,
     `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`
   ];
   for (const proxy of proxies) {
@@ -529,8 +531,12 @@ async function fetchYahoo(symbol, range, interval) {
       const res = await fetch(proxy, {signal: AbortSignal.timeout(9000), cache: 'no-store'});
       if (!res.ok) continue;
       const text = await res.text();
-      try { const o = JSON.parse(text); return o.contents ? JSON.parse(o.contents) : o; }
-      catch { return JSON.parse(text); }
+      if (!text) continue;
+      let obj;
+      try { const o = JSON.parse(text); obj = o.contents ? JSON.parse(o.contents) : o; }
+      catch { try { obj = JSON.parse(text); } catch { continue; } }
+      // make sure it's actually a Yahoo chart payload, not a proxy error page
+      if (obj && obj.chart) return obj;
     } catch(e) { continue; }
   }
   throw new Error('שגיאת חיבור');
@@ -538,18 +544,21 @@ async function fetchYahoo(symbol, range, interval) {
 
 async function fetchSinglePrice(symbol) {
   try {
-    // 1d/1m gives intraday minute candles — most current live price.
-    // meta still carries previousClose for the daily change calc.
-    const data = await fetchYahoo(symbol, '1d', '1m');
+    // 5d/1d daily candles give a reliable previous-session close for the
+    // "% today" calc. meta.regularMarketPrice is still the live price.
+    const data = await fetchYahoo(symbol, '5d', '1d');
     const result = data?.chart?.result?.[0];
     if (!result) return null;
     const meta = result.meta || {};
-    let price = meta.regularMarketPrice;
-    let prevClose = meta.chartPreviousClose ?? meta.previousClose;
-    // fallback: last non-null minute close
     const closes = (result.indicators?.quote?.[0]?.close || []).filter(c=>c!=null);
-    if (price == null) price = closes[closes.length-1];
-    if (price == null || prevClose == null) return null;
+    let price = meta.regularMarketPrice ?? closes[closes.length-1];
+    // prefer the previous daily close from the series; fall back to meta
+    let prevClose = meta.chartPreviousClose ?? meta.previousClose ?? closes[closes.length-2];
+    // if the live price equals the last series close, the "previous" is the one before it
+    if (price != null && closes.length >= 2 && Math.abs(price - closes[closes.length-1]) < 1e-9) {
+      prevClose = closes[closes.length-2];
+    }
+    if (price == null || prevClose == null || prevClose === 0) return null;
     const change = ((price - prevClose) / prevClose) * 100;
     return { price, change };
   } catch { return null; }
@@ -617,11 +626,15 @@ function renderStreak(streak, isBelow) {
   else { verdict.textContent='🚨 יום 3 — צא עכשיו מה-40% מניות'; verdict.className='streak-verdict alert'; }
 }
 
-function drawChart(labels, prices, sma200s, curPrice, curSMA) {
+function drawChart(labels, prices, sma200s, curPrice, curSMA, tries) {
+  tries = tries || 0;
   const canvas = document.getElementById('smaChart');
+  if (!canvas) return;
+  const w = canvas.offsetWidth, h = 150;
+  if (w === 0 && tries < 30) { requestAnimationFrame(()=>drawChart(labels,prices,sma200s,curPrice,curSMA,tries+1)); return; }
+  canvas.style.height = h + 'px';
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
-  const w = canvas.offsetWidth, h = 150;
   canvas.width = w * dpr; canvas.height = h * dpr;
   ctx.scale(dpr, dpr);
   // extra right padding for labels
@@ -693,14 +706,16 @@ async function loadSMA() {
   document.getElementById('errorBox').style.display = 'none';
   belowStreak = loadStreak();
   try {
-    const data = await fetchYahoo('%5EGSPC','300d','1d');
+    // fetch the 200-day history and the live price in parallel (faster + fewer stalls)
+    const [data, live] = await Promise.all([
+      fetchYahoo('%5EGSPC','300d','1d'),
+      fetchSinglePrice('%5EGSPC').catch(()=>null)
+    ]);
     const result = data?.chart?.result?.[0];
     if (!result) throw new Error('אין נתונים');
     const closes = result.indicators.quote[0].close.filter(c=>c!=null);
     if (closes.length < 202) throw new Error('אין מספיק נתונים');
-    // live intraday price — overrides today's point so the chart and the
-    // gap-to-200 calc refresh on every 60s cycle, not just on daily close
-    const live = await fetchSinglePrice('%5EGSPC');
+    // live intraday price overrides today's point so the chart refreshes each cycle
     if (live && live.price) closes[closes.length-1] = live.price;
     const price = closes[closes.length-1];
     const prev  = closes[closes.length-2];
@@ -833,14 +848,17 @@ function yieldCurveCardHTML(spread, color, desc, daysSince) {
   </div>`;
 }
 
-function drawYieldChart(spreads, crossIdx) {
-  setTimeout(() => {
-    const canvas = document.getElementById('yieldChart');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const dpr = window.devicePixelRatio||1;
-    const w = canvas.offsetWidth, h = 150;
-    canvas.width=w*dpr; canvas.height=h*dpr; ctx.scale(dpr,dpr);
+function drawYieldChart(spreads, crossIdx, tries) {
+  tries = tries || 0;
+  const canvas = document.getElementById('yieldChart');
+  if (!canvas) return;
+  const w = canvas.offsetWidth, h = 150;
+  // wait for layout — if the canvas has no width yet, retry next frame
+  if (w === 0 && tries < 30) { requestAnimationFrame(()=>drawYieldChart(spreads,crossIdx,tries+1)); return; }
+  canvas.style.height = h + 'px';
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio||1;
+  canvas.width=w*dpr; canvas.height=h*dpr; ctx.scale(dpr,dpr);
     const pad={t:16,r:56,b:14,l:10};
     const vals=spreads.map(s=>s.v);
     const minV=Math.min(...vals,-0.5), maxV=Math.max(...vals,1);
@@ -880,7 +898,6 @@ function drawYieldChart(spreads, crossIdx) {
     ctx.font='700 13px Heebo,sans-serif'; ctx.fillStyle=cur<0?'#ff3b30':'#007aff';
     ctx.textAlign='left'; ctx.textBaseline='middle';
     ctx.fillText((cur>=0?'+':'')+cur.toFixed(2)+'%', lx+9, ly);
-  }, 40);
 }
 
 function renderYieldTimeline(activeIdx) {
@@ -1140,7 +1157,11 @@ async function loadMacro() {
 let pricesLoaded = false;
 let pricesBusy = false;
 
+const priceCache = {};
 function priceRow(label, data, suffix='') {
+  // keep the last good value so a transient fetch failure doesn't blank the row
+  if (data && data.price != null) priceCache[label] = data;
+  else if (priceCache[label]) data = priceCache[label];
   if (!data) return `<div class="group-row"><div class="row-label">${label}</div><div><span class="pill muted">—</span></div></div>`;
   const c = data.change>=0?'green':'red';
   const sign = data.change>=0?'+':'';
