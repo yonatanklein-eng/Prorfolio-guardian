@@ -686,8 +686,10 @@ function drawChart(labels, prices, sma200s, curPrice, curSMA) {
   drawDot(lastPriceX, lastPriceY, priceColor, fmt(curPrice,0));
 }
 
+let smaBusy = false;
 async function loadSMA() {
-  
+  if (smaBusy) return;
+  smaBusy = true;
   document.getElementById('errorBox').style.display = 'none';
   belowStreak = loadStreak();
   try {
@@ -731,14 +733,16 @@ async function loadSMA() {
     document.getElementById('errorBox').textContent=`שגיאה: ${err.message}`;
     document.getElementById('errorBox').style.display='block';
     setVerdict('load','📡','לא זמין','לחץ רענן.');
+  } finally {
+    smaBusy = false;
   }
-  
 }
 
 // ═══════════════════════
 // PAGE 2 — MACRO
 // ═══════════════════════
 let macroLoaded = false;
+let macroBusy = false;
 
 function colorFor(value, greenMax, amberMax) {
   if (value <= greenMax) return 'green';
@@ -896,7 +900,10 @@ function renderYieldTimeline(activeIdx) {
 }
 
 async function loadMacro() {
+  if (macroBusy) return;
+  macroBusy = true;
   macroLoaded = true;
+  try {
   document.getElementById('macroValuation').innerHTML = '';
   document.getElementById('macroMarket').innerHTML = '';
   document.getElementById('macroEcon').innerHTML = '';
@@ -1099,13 +1106,16 @@ async function loadMacro() {
 
   updateRiskMeter(indicators);
   tsNow('ts1');
-  
+  } finally {
+    macroBusy = false;
+  }
 }
 
 // ═══════════════════════
 // PAGE 3 — LIVE PRICES
 // ═══════════════════════
 let pricesLoaded = false;
+let pricesBusy = false;
 
 function priceRow(label, data, suffix='') {
   if (!data) return `<div class="group-row"><div class="row-label">${label}</div><div><span class="pill muted">—</span></div></div>`;
@@ -1122,7 +1132,10 @@ function priceRow(label, data, suffix='') {
 }
 
 async function loadPrices() {
+  if (pricesBusy) return;
+  pricesBusy = true;
   pricesLoaded = true;
+  try {
 
   const hasKey = !!localStorage.getItem('finnhub_key');
   document.getElementById('apiKeyCard').style.display = hasKey ? 'none' : 'block';
@@ -1168,6 +1181,9 @@ async function loadPrices() {
     priceRow('מדד דולר DXY', dxy);
 
   tsNow('ts2');
+  } finally {
+    pricesBusy = false;
+  }
 }
 
 // ═══════════════════════
