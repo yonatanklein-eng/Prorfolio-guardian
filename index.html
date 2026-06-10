@@ -502,7 +502,7 @@ pagesWrap.addEventListener('scroll', () => {
     if (n !== currentPage) {
       currentPage = n;
       document.querySelectorAll('.page-dot').forEach((d,i) => d.classList.toggle('active', i===n));
-      if (n===1 && !macroLoaded) loadMacro();
+      if (n===1) loadMacro();   // reloads on each open; busy-guard blocks overlap
       if (n===2 && !pricesLoaded) loadPrices();
       // page 3 (full breadth) loads on button press, not auto
     }
@@ -1059,38 +1059,57 @@ async function loadMacro() {
     indicators.push({color:'amber', weight:1, name:'נפט'});
   }
 
-  // 8. Market Breadth — % of large stocks above their own SMA200
+  // 8. Market Breadth — FULL S&P 500 scan (~2-3 min). The overall risk score
+  // is computed at the end of loadMacro, so it waits for this to finish.
   try {
-    const basket = ['AAPL','MSFT','NVDA','AMZN','GOOGL','META','TSLA','BRK-B','JPM','V',
-      'UNH','XOM','JNJ','WMT','MA','PG','HD','CVX','MRK','KO',
-      'PEP','COST','ABBV','BAC','AVGO','LLY','ADBE','CRM','ACN','MCD',
-      'TMO','CSCO','ABT','DHR','LIN','TXN','NEE','VZ','NKE','PM',
-      'WFC','DIS','INTC','CMCSA','AMD','INTU','QCOM','UPS','HON','COP',
-      'CAT','LOW','IBM','GS','SPGI','RTX','AMGN','BA','DE','PFE',
-      'NOW','GE','BKNG','PLD','ELV','SBUX','MDT','GILD','ADP','TJX',
-      'AXP','MDLZ','VRTX','CB','LRCX','MMC','SYK','C','MO','REGN',
-      'ZTS','SO','BSX','PGR','DUK','SLB','EOG','CME','MU','BDX',
-      'AON','ITW','APD','KLAC','SHW','MCK','CL','FCX','EMR','NSC'];
-    const results = await Promise.allSettled(
-      basket.map(sym => fetchYahoo(encodeURIComponent(sym),'300d','1d'))
-    );
-    let above=0, counted=0;
-    results.forEach(r => {
-      if (r.status!=='fulfilled') return;
-      const cl = r.value?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
-      if (cl.length < 200) return;
-      const price = cl[cl.length-1];
-      const sma = cl.slice(-200).reduce((a,b)=>a+b,0)/200;
-      counted++;
-      if (price > sma) above++;
-    });
-    if (counted >= 30) {
+    document.getElementById('macroMarket').innerHTML += `
+      <div class="macro-card" id="breadthCard">
+        <div class="macro-bar-left amber" id="breadthBar"></div>
+        <div class="macro-body">
+          <div class="macro-top">
+            <div class="macro-name">רוחב שוק (500 מניות)</div>
+            <div class="macro-badge amber" id="breadthBadge">טוען</div>
+          </div>
+          <div class="macro-value-row">
+            <div class="macro-value amber" id="breadthValue">…</div>
+            <div class="macro-normal">(נורמלי: מעל 60%)</div>
+          </div>
+          <div class="macro-desc" id="breadthDesc">בודק את כל ~500 מניות ה-S&P מול קו ה-200 שלהן. אורך 2–3 דקות…</div>
+        </div>
+      </div>`;
+
+    let above=0, counted=0, done=0;
+    const BATCH=20, total=SP500.length;
+    for (let i=0; i<SP500.length; i+=BATCH) {
+      const chunk = SP500.slice(i, i+BATCH);
+      const res = await Promise.allSettled(chunk.map(s=>fetchYahoo(encodeURIComponent(s),'300d','1d')));
+      res.forEach(r => {
+        done++;
+        if (r.status!=='fulfilled') return;
+        const cl = r.value?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
+        if (cl.length < 200) return;
+        const p = cl[cl.length-1], sma = cl.slice(-200).reduce((a,b)=>a+b,0)/200;
+        counted++; if (p > sma) above++;
+      });
+      const d = document.getElementById('breadthDesc');
+      if (d) d.textContent = `נבדקו ${done} מתוך ${total} מניות (${counted} בהצלחה)…`;
+    }
+
+    if (counted >= 50) {
       const breadth = Math.round((above/counted)*100);
       const bColor = breadth >= 60 ? 'green' : breadth >= 45 ? 'amber' : 'red';
       indicators.push({color:bColor, weight:2, name:'רוחב שוק'});
-      document.getElementById('macroMarket').innerHTML +=
-        macroCardHTML('רוחב שוק', breadth, breadth+'%', 'מעל 60%', breadth, bColor,
-          `אחוז מ-${counted} המניות הגדולות ב-S&P שנמצאות מעל קו ה-200 שלהן. מתחת ל-50% = השוק עולה על גב מעט מניות בלבד, סימן חולשה פנימית.`);
+      const bv = document.getElementById('breadthValue');
+      if (bv) { bv.textContent = breadth+'%'; bv.className = 'macro-value '+bColor; }
+      const bb = document.getElementById('breadthBadge');
+      if (bb) { bb.textContent = badgeLabel(bColor); bb.className = 'macro-badge '+bColor; }
+      const bar = document.getElementById('breadthBar');
+      if (bar) bar.className = 'macro-bar-left '+bColor;
+      const bd = document.getElementById('breadthDesc');
+      if (bd) bd.textContent = `${above} מתוך ${counted} מניות ה-S&P נמצאות מעל קו ה-200 שלהן. מתחת ל-50% = השוק עולה על גב מעט מניות בלבד, סימן חולשה פנימית.`;
+    } else {
+      const bd = document.getElementById('breadthDesc');
+      if (bd) bd.textContent = 'טעינת רוחב השוק נכשלה — נסה לפתוח שוב את הדף.';
     }
   } catch(e) { /* skip if fails */ }
 
@@ -1195,10 +1214,11 @@ async function loadPrices() {
 // ═══════════════════════
 loadSMA();
 
-// Auto-refresh every minute — only the page currently visible
+// Auto-refresh every minute — only the live pages (SMA + prices).
+// The risk meter (page 1) is NOT auto-refreshed; it loads only when opened,
+// since its full 500-stock breadth scan takes 2-3 minutes.
 setInterval(() => {
   if (currentPage === 0) loadSMA();
-  else if (currentPage === 1) { macroLoaded = false; loadMacro(); }
   else if (currentPage === 2) { pricesLoaded = false; loadPrices(); }
 }, 60 * 1000);
 
@@ -1206,7 +1226,6 @@ setInterval(() => {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     if (currentPage === 0) loadSMA();
-    else if (currentPage === 1) { macroLoaded = false; loadMacro(); }
     else if (currentPage === 2) { pricesLoaded = false; loadPrices(); }
   }
 });
