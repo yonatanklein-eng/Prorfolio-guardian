@@ -698,6 +698,10 @@ async function loadSMA() {
     if (!result) throw new Error('אין נתונים');
     const closes = result.indicators.quote[0].close.filter(c=>c!=null);
     if (closes.length < 202) throw new Error('אין מספיק נתונים');
+    // live intraday price — overrides today's point so the chart and the
+    // gap-to-200 calc refresh on every 60s cycle, not just on daily close
+    const live = await fetchSinglePrice('%5EGSPC');
+    if (live && live.price) closes[closes.length-1] = live.price;
     const price = closes[closes.length-1];
     const prev  = closes[closes.length-2];
     const sma200 = calcSMA(closes, 200);
