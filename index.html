@@ -414,6 +414,34 @@ const SP500 = ["MMM","AOS","ABT","ABBV","ACN","ADBE","AMD","AES","AFL","A","APD"
 
 let fullBreadthLoaded = false;
 
+// Shared S&P 500 breadth — computed once, cached ~15 min, and reused by BOTH
+// the risk meter (page 2) and the full-breadth page (page 4) so they agree.
+let breadthCache = null; // {breadth, above, below, counted, time}
+async function computeBreadth(onProgress) {
+  if (breadthCache && Date.now() - breadthCache.time < 15*60*1000) {
+    if (onProgress) onProgress(SP500.length, breadthCache.counted);
+    return breadthCache;
+  }
+  let above=0, below=0, counted=0, done=0;
+  const BATCH=20, total=SP500.length;
+  for (let i=0; i<SP500.length; i+=BATCH) {
+    const chunk = SP500.slice(i, i+BATCH);
+    const results = await Promise.allSettled(chunk.map(s=>fetchYahoo(encodeURIComponent(s),'300d','1d')));
+    results.forEach(r => {
+      done++;
+      if (r.status!=='fulfilled') return;
+      const cl = r.value?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
+      if (cl.length < 200) return;
+      const price = cl[cl.length-1], sma = cl.slice(-200).reduce((a,b)=>a+b,0)/200;
+      counted++; if (price > sma) above++; else below++;
+    });
+    if (onProgress) onProgress(done, counted);
+  }
+  const result = {breadth: counted>=50 ? Math.round((above/counted)*100) : null, above, below, counted, time:Date.now()};
+  if (counted >= 50) breadthCache = result;
+  return result;
+}
+
 async function loadFullBreadth() {
   const btn = document.getElementById('fullBreadthBtn');
   btn.disabled = true;
@@ -422,38 +450,18 @@ async function loadFullBreadth() {
   const progBar = document.getElementById('fullBreadthProg');
   const progLabel = document.getElementById('fullBreadthProgLabel');
 
-  let above=0, below=0, counted=0, done=0;
-  const total = SP500.length;
-
-  // process in batches of 20 to avoid overwhelming the proxy
-  const BATCH = 20;
-  for (let i=0; i<SP500.length; i+=BATCH) {
-    const chunk = SP500.slice(i, i+BATCH);
-    const results = await Promise.allSettled(
-      chunk.map(sym => fetchYahoo(encodeURIComponent(sym),'300d','1d'))
-    );
-    results.forEach(r => {
-      done++;
-      if (r.status!=='fulfilled') return;
-      const cl = r.value?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
-      if (cl.length < 200) return;
-      const price = cl[cl.length-1];
-      const sma = cl.slice(-200).reduce((a,b)=>a+b,0)/200;
-      counted++;
-      if (price > sma) above++; else below++;
-    });
-    const pct = Math.round((done/total)*100);
+  const {breadth, above, below, counted} = await computeBreadth((done, cnt) => {
+    const pct = Math.round((done/SP500.length)*100);
     progBar.style.width = pct + '%';
-    progLabel.textContent = `נטענו ${done} מתוך ${total} (${counted} בהצלחה)`;
-  }
+    progLabel.textContent = `נטענו ${done} מתוך ${SP500.length} (${cnt} בהצלחה)`;
+  });
 
-  if (counted < 50) {
+  if (breadth === null) {
     document.getElementById('fullBreadthLabel').textContent = 'טעינה נכשלה — נסה שוב';
     btn.disabled = false; btn.textContent = 'נסה שוב';
     return;
   }
 
-  const breadth = Math.round((above/counted)*100);
   const color = breadth>=60?'green':breadth>=45?'amber':'red';
   const scoreEl = document.getElementById('fullBreadthScore');
   scoreEl.textContent = breadth + '%';
@@ -699,6 +707,20 @@ function drawChart(labels, prices, sma200s, curPrice, curSMA, tries) {
   drawDot(lastPriceX, lastPriceY, priceColor, fmt(curPrice,0));
 }
 
+// the 200-day history changes slowly, so cache it ~30 min and only re-pull the
+// fast live price each cycle — that's what makes the 60s refresh feel instant.
+let smaHistCache = null; // {closes, time}
+async function liveGSPC(prevClose) {
+  // fast path: Finnhub SPY gives the live % move; apply it to yesterday's S&P close
+  const spy = await fetchFinnhub('SPY');
+  if (spy && spy.price != null && spy.change != null && prevClose) {
+    return prevClose * (1 + spy.change/100);
+  }
+  // fallback: Yahoo intraday
+  const y = await fetchSinglePrice('%5EGSPC').catch(()=>null);
+  return y && y.price != null ? y.price : null;
+}
+
 let smaBusy = false;
 async function loadSMA() {
   if (smaBusy) return;
@@ -706,17 +728,21 @@ async function loadSMA() {
   document.getElementById('errorBox').style.display = 'none';
   belowStreak = loadStreak();
   try {
-    // fetch the 200-day history and the live price in parallel (faster + fewer stalls)
-    const [data, live] = await Promise.all([
-      fetchYahoo('%5EGSPC','300d','1d'),
-      fetchSinglePrice('%5EGSPC').catch(()=>null)
-    ]);
-    const result = data?.chart?.result?.[0];
-    if (!result) throw new Error('אין נתונים');
-    const closes = result.indicators.quote[0].close.filter(c=>c!=null);
-    if (closes.length < 202) throw new Error('אין מספיק נתונים');
-    // live intraday price overrides today's point so the chart refreshes each cycle
-    if (live && live.price) closes[closes.length-1] = live.price;
+    // reuse cached daily history if fresh; otherwise pull the 300-day series once
+    let closes;
+    if (smaHistCache && Date.now() - smaHistCache.time < 30*60*1000) {
+      closes = smaHistCache.closes.slice();
+    } else {
+      const data = await fetchYahoo('%5EGSPC','300d','1d');
+      const result = data?.chart?.result?.[0];
+      if (!result) throw new Error('אין נתונים');
+      closes = result.indicators.quote[0].close.filter(c=>c!=null);
+      if (closes.length < 202) throw new Error('אין מספיק נתונים');
+      smaHistCache = {closes: closes.slice(), time: Date.now()};
+    }
+    // live price overrides today's point so the chart + gap refresh each cycle
+    const live = await liveGSPC(closes[closes.length-2]);
+    if (live != null) closes[closes.length-1] = live;
     const price = closes[closes.length-1];
     const prev  = closes[closes.length-2];
     const sma200 = calcSMA(closes, 200);
@@ -1001,12 +1027,12 @@ async function loadMacro() {
       ycDesc=`העקום חיובי ורחב (${cur}%), לא היה היפוך לאחרונה. מבנה תקין — אין אזהרת מיתון.`;
     }
     indicators.push({color:ycColor, weight:3, name:'עקום תשואות'});
-    document.getElementById('macroMarket').innerHTML += yieldCurveCardHTML(cur, ycColor, ycDesc, daysSince);
+    document.getElementById('macroMarket').insertAdjacentHTML('beforeend', yieldCurveCardHTML(cur, ycColor, ycDesc, daysSince));
     drawYieldChart(spreads, crossIdx);
     renderYieldTimeline(stepIdx);
   } catch(e) {
     indicators.push({color:'red', weight:3, name:'עקום תשואות'});
-    document.getElementById('macroMarket').innerHTML += yieldCurveCardHTML(null, 'red', 'העקום התהפך לאחרונה וחזר לחיובי — שלב מסוכן היסטורית.', null);
+    document.getElementById('macroMarket').insertAdjacentHTML('beforeend', yieldCurveCardHTML(null, 'red', 'העקום התהפך לאחרונה וחזר לחיובי — שלב מסוכן היסטורית.', null));
   }
 
   // 4. VIX
@@ -1018,9 +1044,9 @@ async function loadMacro() {
     const vixColor = colorFor(vix, 18, 28);
     const vixPct = Math.min(100,(vix/50)*100);
     indicators.push({color:vixColor, weight:1, name:'VIX'});
-    document.getElementById('macroMarket').innerHTML +=
+    document.getElementById('macroMarket').insertAdjacentHTML('beforeend',
       macroCardHTML('VIX — מדד הפחד', vix, vix.toFixed(1), '12–18', vixPct, vixColor,
-        'תנודתיות צפויה ב-30 יום. מתחת 18 = שאננות. מעל 30 = פאניקה. מעל 40 = משבר.');
+        'תנודתיות צפויה ב-30 יום. מתחת 18 = שאננות. מעל 30 = פאניקה. מעל 40 = משבר.'));
   } catch {
     indicators.push({color:'amber', weight:1, name:'VIX'});
   }
@@ -1037,9 +1063,9 @@ async function loadMacro() {
     const goldColor = gold > 2800 ? 'red' : gold > 2400 ? 'amber' : 'green';
     const goldPct = Math.min(100,(gold/3500)*100);
     indicators.push({color:goldColor, weight:1, name:'זהב'});
-    document.getElementById('macroMarket').innerHTML +=
+    document.getElementById('macroMarket').insertAdjacentHTML('beforeend',
       macroCardHTML('זהב ($/אונקיה)', gold, '$'+fmt(gold,0), '$1,500–$2,000', goldPct, goldColor,
-        `זהב גבוה = חוסר אמון במערכת. שינוי יומי: ${goldChg>=0?'+':''}${goldChg.toFixed(2)}%.`);
+        `זהב גבוה = חוסר אמון במערכת. שינוי יומי: ${goldChg>=0?'+':''}${goldChg.toFixed(2)}%.`));
   } catch {
     indicators.push({color:'amber', weight:1, name:'זהב'});
   }
@@ -1053,9 +1079,9 @@ async function loadMacro() {
     const dxyColor = dxy > 105 ? 'red' : dxy > 100 ? 'amber' : 'green';
     const dxyPct = Math.min(100,(dxy/120)*100);
     indicators.push({color:dxyColor, weight:1, name:'DXY'});
-    document.getElementById('macroMarket').innerHTML +=
+    document.getElementById('macroMarket').insertAdjacentHTML('beforeend',
       macroCardHTML('דולר — מדד DXY', dxy, dxy.toFixed(1), '95–102', dxyPct, dxyColor,
-        'דולר חזק מדי = לחץ על שווקים מתפתחים ועל רווחי חברות רב-לאומיות אמריקאיות.');
+        'דולר חזק מדי = לחץ על שווקים מתפתחים ועל רווחי חברות רב-לאומיות אמריקאיות.'));
   } catch {
     indicators.push({color:'amber', weight:1, name:'DXY'});
   }
@@ -1076,10 +1102,10 @@ async function loadMacro() {
     indicators.push({color:'amber', weight:1, name:'נפט'});
   }
 
-  // 8. Market Breadth — FULL S&P 500 scan (~2-3 min). The overall risk score
-  // is computed at the end of loadMacro, so it waits for this to finish.
+  // 8. Market Breadth — uses the SHARED full S&P 500 scan (same number as page 4).
+  // If page 4 already ran it, this returns instantly from cache.
   try {
-    document.getElementById('macroMarket').innerHTML += `
+    document.getElementById('macroMarket').insertAdjacentHTML('beforeend', `
       <div class="macro-card" id="breadthCard">
         <div class="macro-bar-left amber" id="breadthBar"></div>
         <div class="macro-body">
@@ -1093,27 +1119,14 @@ async function loadMacro() {
           </div>
           <div class="macro-desc" id="breadthDesc">בודק את כל ~500 מניות ה-S&P מול קו ה-200 שלהן. אורך 2–3 דקות…</div>
         </div>
-      </div>`;
+      </div>`);
 
-    let above=0, counted=0, done=0;
-    const BATCH=20, total=SP500.length;
-    for (let i=0; i<SP500.length; i+=BATCH) {
-      const chunk = SP500.slice(i, i+BATCH);
-      const res = await Promise.allSettled(chunk.map(s=>fetchYahoo(encodeURIComponent(s),'300d','1d')));
-      res.forEach(r => {
-        done++;
-        if (r.status!=='fulfilled') return;
-        const cl = r.value?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
-        if (cl.length < 200) return;
-        const p = cl[cl.length-1], sma = cl.slice(-200).reduce((a,b)=>a+b,0)/200;
-        counted++; if (p > sma) above++;
-      });
+    const {breadth, above, counted} = await computeBreadth((done, cnt) => {
       const d = document.getElementById('breadthDesc');
-      if (d) d.textContent = `נבדקו ${done} מתוך ${total} מניות (${counted} בהצלחה)…`;
-    }
+      if (d) d.textContent = `נבדקו ${done} מתוך ${SP500.length} מניות (${cnt} בהצלחה)…`;
+    });
 
-    if (counted >= 50) {
-      const breadth = Math.round((above/counted)*100);
+    if (breadth !== null) {
       const bColor = breadth >= 60 ? 'green' : breadth >= 45 ? 'amber' : 'red';
       indicators.push({color:bColor, weight:2, name:'רוחב שוק'});
       const bv = document.getElementById('breadthValue');
@@ -1175,56 +1188,52 @@ function priceRow(label, data, suffix='') {
   </div>`;
 }
 
+async function fhOrYahoo(fhSym, ySym) {
+  const r = await fetchFinnhub(fhSym);
+  return r || fetchSinglePrice(ySym).catch(() => null);
+}
+
+// render one group on its own — fast Finnhub groups show immediately and
+// don't wait for the slow Yahoo-only groups (indices / bonds)
+async function fillPriceGroup(elId, items) {
+  const vals = await Promise.all(items.map(it => it.get()));
+  document.getElementById(elId).innerHTML =
+    items.map((it,i) => priceRow(it.label, vals[i], it.suffix||'')).join('');
+}
+
 async function loadPrices() {
   if (pricesBusy) return;
   pricesBusy = true;
   pricesLoaded = true;
   try {
+    const hasKey = !!localStorage.getItem('finnhub_key');
+    document.getElementById('apiKeyCard').style.display = hasKey ? 'none' : 'block';
 
-  const hasKey = !!localStorage.getItem('finnhub_key');
-  document.getElementById('apiKeyCard').style.display = hasKey ? 'none' : 'block';
+    const groups = [
+      fillPriceGroup('priceMarkets', [
+        {label:'Nasdaq',    get:()=>fhOrYahoo('^IXIC','%5EIXIC')},
+        {label:'Dow Jones', get:()=>fhOrYahoo('^DJI','%5EDJI')},
+        {label:'ת"א 125',   get:()=>fetchSinglePrice('%5ETA125.TA').catch(()=>null)},
+      ]),
+      fillPriceGroup('priceSafehaven', [
+        {label:'זהב ($/אונקיה)',   suffix:'$', get:()=>fhOrYahoo('OANDA:XAU_USD','GC%3DF')},
+        {label:'נפט WTI ($/חבית)', suffix:'$', get:()=>fetchSinglePrice('CL%3DF').catch(()=>null)},
+        {label:'Bitcoin',          suffix:'$', get:()=>fhOrYahoo('BINANCE:BTCUSDT','BTC-USD')},
+      ]),
+      fillPriceGroup('priceBonds', [
+        {label:'אג"ח 10 שנים',  get:()=>fetchSinglePrice('%5ETNX').catch(()=>null)},
+        {label:'אג"ח 3 חודשים', get:()=>fetchSinglePrice('%5EIRX').catch(()=>null)},
+        {label:'אג"ח 30 שנים',  get:()=>fetchSinglePrice('%5ETYX').catch(()=>null)},
+      ]),
+      fillPriceGroup('priceFx', [
+        {label:'דולר/שקל',     get:()=>fhOrYahoo('OANDA:USD_ILS','ILS%3DX')},
+        {label:'יורו/דולר',    get:()=>fhOrYahoo('OANDA:EUR_USD','EURUSD%3DX')},
+        {label:'מדד דולר DXY', get:()=>fetchSinglePrice('DX-Y.NYB').catch(()=>null)},
+      ]),
+    ];
 
-  async function fhOrYahoo(fhSym, ySym) {
-    const r = await fetchFinnhub(fhSym);
-    return r || fetchSinglePrice(ySym).catch(() => null);
-  }
-
-  const [nasdaq, dji, ta125, gold, oil, btc, y10, y3m, y30, usdils, eurusd, dxy] = await Promise.all([
-    fhOrYahoo('^IXIC',       '%5EIXIC'),
-    fhOrYahoo('^DJI',        '%5EDJI'),
-    fetchSinglePrice('%5ETA125.TA').catch(() => null),
-    fhOrYahoo('OANDA:XAU_USD', 'GC%3DF'),
-    fetchSinglePrice('CL%3DF').catch(() => null),
-    fhOrYahoo('BINANCE:BTCUSDT', 'BTC-USD'),
-    fetchSinglePrice('%5ETNX').catch(() => null),
-    fetchSinglePrice('%5EIRX').catch(() => null),
-    fetchSinglePrice('%5ETYX').catch(() => null),
-    fhOrYahoo('OANDA:USD_ILS', 'ILS%3DX'),
-    fhOrYahoo('OANDA:EUR_USD', 'EURUSD%3DX'),
-    fetchSinglePrice('DX-Y.NYB').catch(() => null),
-  ]);
-
-  document.getElementById('priceMarkets').innerHTML =
-    priceRow('Nasdaq', nasdaq) +
-    priceRow('Dow Jones', dji) +
-    priceRow('ת"א 125', ta125);
-
-  document.getElementById('priceSafehaven').innerHTML =
-    priceRow('זהב ($/אונקיה)', gold, '$') +
-    priceRow('נפט WTI ($/חבית)', oil, '$') +
-    priceRow('Bitcoin', btc, '$');
-
-  document.getElementById('priceBonds').innerHTML =
-    priceRow('אג"ח 10 שנים', y10) +
-    priceRow('אג"ח 3 חודשים', y3m) +
-    priceRow('אג"ח 30 שנים', y30);
-
-  document.getElementById('priceFx').innerHTML =
-    priceRow('דולר/שקל', usdils) +
-    priceRow('יורו/דולר', eurusd) +
-    priceRow('מדד דולר DXY', dxy);
-
-  tsNow('ts2');
+    await Promise.allSettled(groups);
+    tsNow('ts2');
   } finally {
     pricesBusy = false;
   }
