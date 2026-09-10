@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>אבחון מקורות נתונים — שומר התיק</title>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+:root{
+  --bg:#f2f2f7; --card:#fff; --sep:rgba(60,60,67,0.12);
+  --green:#34c759; --red:#ff3b30; --amber:#ff9500; --blue:#007aff;
+  --text:#000; --text2:#3c3c43; --muted:#8e8e93;
+}
+@media(prefers-color-scheme:dark){
+  :root{--bg:#1c1c1e;--card:#2c2c2e;--sep:rgba(84,84,88,0.6);--text:#fff;--text2:#ebebf5;}
+}
+body{background:var(--bg);color:var(--text);font-family:'Heebo',-apple-system,sans-serif;
+  padding:16px;line-height:1.5;-webkit-font-smoothing:antialiased;}
+.wrap{max-width:760px;margin:0 auto;}
+h1{font-size:22px;font-weight:800;margin-bottom:4px;}
+.sub{color:var(--muted);font-size:14px;margin-bottom:16px;}
+.card{background:var(--card);border-radius:16px;padding:16px;margin-bottom:12px;}
+.card h2{font-size:15px;font-weight:700;margin-bottom:10px;color:var(--text2);}
+label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px;}
+input{width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid var(--sep);
+  background:var(--bg);color:var(--text);font-family:'Heebo',sans-serif;font-size:14px;
+  outline:none;margin-bottom:10px;direction:ltr;text-align:left;}
+input:focus{border-color:var(--blue);}
+button{width:100%;padding:15px;border:none;border-radius:14px;background:var(--blue);
+  color:#fff;font-family:'Heebo',sans-serif;font-size:16px;font-weight:700;cursor:pointer;}
+button:disabled{opacity:.5;cursor:default;}
+button.sec{background:var(--card);color:var(--blue);border:1.5px solid var(--blue);margin-top:8px;}
+.grp{font-size:13px;font-weight:800;color:var(--muted);margin:18px 0 8px;
+  padding-bottom:6px;border-bottom:1px solid var(--sep);}
+.row{display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-bottom:1px solid var(--sep);}
+.row:last-child{border-bottom:none;}
+.row-main{flex:1;min-width:0;}
+.row-name{font-size:14px;font-weight:600;}
+.row-note{font-size:12px;color:var(--muted);direction:ltr;text-align:left;
+  word-break:break-all;margin-top:2px;font-family:ui-monospace,monospace;}
+.pill{font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap;}
+.pill.ok{background:rgba(52,199,89,.16);color:var(--green);}
+.pill.no{background:rgba(255,59,48,.16);color:var(--red);}
+.pill.warn{background:rgba(255,149,0,.16);color:var(--amber);}
+.pill.wait{background:rgba(142,142,147,.16);color:var(--muted);}
+.ms{font-size:11px;color:var(--muted);white-space:nowrap;}
+.summary{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
+.stat{flex:1;min-width:88px;background:var(--card);border-radius:12px;padding:12px;text-align:center;}
+.stat-n{font-size:24px;font-weight:800;}
+.stat-l{font-size:11px;color:var(--muted);}
+textarea{width:100%;height:170px;padding:12px;border-radius:10px;border:1.5px solid var(--sep);
+  background:var(--bg);color:var(--text);font-family:ui-monospace,monospace;font-size:11px;
+  direction:ltr;text-align:left;margin-top:10px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>אבחון מקורות נתונים</h1>
+  <div class="sub">בודק מאיזה מקורות הדפדפן הזה באמת מצליח למשוך נתונים.</div>
+
+  <div class="card">
+    <h2>מפתחות (אופציונלי)</h2>
+    <label>Finnhub — נטען אוטומטית מהאפליקציה אם כבר הזנת</label>
+    <input id="kFinnhub" placeholder="finnhub key">
+    <label>Twelve Data — אם יש לך</label>
+    <input id="kTwelve" placeholder="twelvedata key (אפשר להשאיר ריק)">
+    <label>Alpha Vantage — אם יש לך</label>
+    <input id="kAlpha" placeholder="alphavantage key (אפשר להשאיר ריק)">
+    <button id="runBtn" onclick="runAll()">הרץ בדיקה</button>
+    <button class="sec" onclick="copyOut()">העתק תוצאות</button>
+  </div>
+
+  <div class="summary" id="summary"></div>
+  <div id="results"></div>
+  <div class="card" id="outCard" style="display:none">
+    <h2>תוצאות להעתקה</h2>
+    <textarea id="out" readonly></textarea>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+// A test either COMPLETES (CORS passed — even a 403
+// counts, the host is reachable) or THROWS TypeError
+// (CORS blocked / network refused). These are very
+// different problems, so we report them separately.
+// ═══════════════════════════════════════════════
+const results = [];
+
+function el(id){ return document.getElementById(id); }
+
+async function probe(url, opts) {
+  const t0 = performance.now();
+  try {
+    const res = await fetch(url, Object.assign({cache:'no-store'}, opts||{}));
+    const ms = Math.round(performance.now() - t0);
+    const text = await res.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch(e) {}
+    return { cors:true, status:res.status, ok:res.ok, ms, text, json };
+  } catch (err) {
+    const ms = Math.round(performance.now() - t0);
+    return { cors:false, ms, err:String(err.message || err) };
+  }
+}
+
+// Unwrap the two allorigins response shapes
+function unwrap(r) {
+  if (!r.json) return null;
+  if (r.json.contents) { try { return JSON.parse(r.json.contents); } catch(e){ return null; } }
+  return r.json;
+}
+
+const YURL = 'https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?range=5d&interval=1d';
+
+function buildTests() {
+  const fk = el('kFinnhub').value.trim();
+  const tk = el('kTwelve').value.trim();
+  const ak = el('kAlpha').value.trim() || 'demo';
+  const to = Math.floor(Date.now()/1000);
+  const from = to - 60*60*24*400;
+  const T = [];
+
+  // ── 1. Finnhub: what the free tier should cover ──
+  const etfs = [
+    ['SPY','S&P 500'], ['QQQ','Nasdaq'], ['DIA','Dow Jones'],
+    ['GLD','זהב'], ['USO','נפט WTI'], ['IBIT','ביטקוין'],
+    ['TLT','אג״ח ארוך'], ['IEF','אג״ח בינוני'], ['BIL','אג״ח קצר'],
+    ['UUP','מדד הדולר'], ['VIXY','VIX'], ['EIS','ישראל']
+  ];
+  etfs.forEach(([sym,label]) => {
+    T.push({ grp:'Finnhub — תעודות סל אמריקאיות (אמור לעבוד)', name:`${sym} · ${label}`,
+      run: async () => {
+        if (!fk) return { skip:'אין מפתח' };
+        const r = await probe(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${fk}`);
+        if (!r.cors) return { ...r, verdict:'no', detail:r.err };
+        if (r.json && r.json.c) return { ...r, verdict:'ok', detail:`מחיר ${r.json.c} · שינוי ${r.json.dp!=null?r.json.dp.toFixed(2)+'%':'—'}` };
+        return { ...r, verdict:'no', detail:`HTTP ${r.status} · ${r.text.slice(0,90)}` };
+      }});
+  });
+
+  // ── 2. Finnhub: what I expect to be blocked on free ──
+  [['%5EGSPC','אינדקס S&P ישיר'], ['OANDA:USD_ILS','מט״ח דולר/שקל'],
+   ['BINANCE:BTCUSDT','קריפטו']].forEach(([sym,label]) => {
+    T.push({ grp:'Finnhub — מה שכנראה חסום ב־free tier', name:label,
+      run: async () => {
+        if (!fk) return { skip:'אין מפתח' };
+        const r = await probe(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${fk}`);
+        if (!r.cors) return { ...r, verdict:'no', detail:r.err };
+        if (r.json && r.json.c) return { ...r, verdict:'ok', detail:`עובד! מחיר ${r.json.c}` };
+        return { ...r, verdict:'warn', detail:`HTTP ${r.status} · ${r.text.slice(0,90)}` };
+      }});
+  });
+
+  T.push({ grp:'Finnhub — מה שכנראה חסום ב־free tier', name:'היסטוריה יומית (candle) — קריטי לקו 200',
+    run: async () => {
+      if (!fk) return { skip:'אין מפתח' };
+      const r = await probe(`https://finnhub.io/api/v1/stock/candle?symbol=SPY&resolution=D&from=${from}&to=${to}&token=${fk}`);
+      if (!r.cors) return { ...r, verdict:'no', detail:r.err };
+      if (r.json && r.json.c && r.json.c.length) return { ...r, verdict:'ok', detail:`עובד! ${r.json.c.length} ימים` };
+      return { ...r, verdict:'warn', detail:`HTTP ${r.status} · ${r.text.slice(0,90)}` };
+    }});
+
+  // ── 3. Yahoo, no proxy ──
+  T.push({ grp:'Yahoo ישירות (בלי פרוקסי)', name:'^GSPC',
+    run: async () => {
+      const r = await probe(YURL);
+      if (!r.cors) return { ...r, verdict:'no', detail:'חסום ב־CORS — ' + r.err };
+      return { ...r, verdict:'ok', detail:`HTTP ${r.status}` };
+    }});
+
+  // ── 4. Each proxy separately, so we learn which are alive ──
+  [['corsproxy.io', `https://corsproxy.io/?url=${encodeURIComponent(YURL)}`],
+   ['codetabs',     `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(YURL)}`],
+   ['allorigins/raw',`https://api.allorigins.win/raw?url=${encodeURIComponent(YURL)}`],
+   ['thingproxy',   `https://thingproxy.freeboard.io/fetch/${YURL}`],
+   ['allorigins/get',`https://api.allorigins.win/get?url=${encodeURIComponent(YURL)}`]
+  ].forEach(([name,u]) => {
+    T.push({ grp:'Yahoo דרך הפרוקסי הקיימים — מי מהם עדיין חי', name,
+      run: async () => {
+        const r = await probe(u);
+        if (!r.cors) return { ...r, verdict:'no', detail:r.err };
+        const o = unwrap(r);
+        const px = o?.chart?.result?.[0]?.meta?.regularMarketPrice;
+        if (px) return { ...r, verdict:'ok', detail:`S&P = ${px}` };
+        return { ...r, verdict:'no', detail:`HTTP ${r.status} · ${(r.text||'').slice(0,90)}` };
+      }});
+  });
+
+  // ── 5. Historical alternatives ──
+  T.push({ grp:'היסטוריה — מועמדים חלופיים', name:'Twelve Data · time_series SPY',
+    run: async () => {
+      const u = `https://api.twelvedata.com/time_series?symbol=SPY&interval=1day&outputsize=250${tk?'&apikey='+tk:''}`;
+      const r = await probe(u);
+      if (!r.cors) return { ...r, verdict:'no', detail:'חסום ב־CORS — ' + r.err };
+      const n = r.json?.values?.length;
+      if (n) return { ...r, verdict:'ok', detail:`${n} ימים · אחרון ${r.json.values[0].close}` };
+      return { ...r, verdict:'warn', detail:`CORS עבר · HTTP ${r.status} · ${(r.text||'').slice(0,90)}` };
+    }});
+
+  T.push({ grp:'היסטוריה — מועמדים חלופיים', name:'Alpha Vantage · TIME_SERIES_DAILY',
+    run: async () => {
+      const r = await probe(`https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=SPY&outputsize=full&apikey=${ak}`);
+      if (!r.cors) return { ...r, verdict:'no', detail:'חסום ב־CORS — ' + r.err };
+      const s = r.json?.['Time Series (Daily)'];
+      if (s) return { ...r, verdict:'ok', detail:`${Object.keys(s).length} ימים` };
+      return { ...r, verdict:'warn', detail:`CORS עבר · ${JSON.stringify(r.json||r.text).slice(0,110)}` };
+    }});
+
+  T.push({ grp:'היסטוריה — מועמדים חלופיים', name:'Stooq · CSV ישירות',
+    run: async () => {
+      const r = await probe('https://stooq.com/q/d/l/?s=spy.us&i=d');
+      if (!r.cors) return { ...r, verdict:'no', detail:'חסום ב־CORS — ' + r.err };
+      const lines = (r.text||'').trim().split('\n');
+      if (lines.length > 10) return { ...r, verdict:'ok', detail:`${lines.length} שורות · ${lines[lines.length-1]}` };
+      return { ...r, verdict:'warn', detail:`HTTP ${r.status} · ${(r.text||'').slice(0,90)}` };
+    }});
+
+  // ── 6. FX + breadth ──
+  T.push({ grp:'מט״ח ורוחב שוק', name:'Frankfurter · דולר/שקל (בלי מפתח)',
+    run: async () => {
+      const r = await probe('https://api.frankfurter.dev/v1/latest?base=USD&symbols=ILS');
+      if (!r.cors) return { ...r, verdict:'no', detail:'חסום ב־CORS — ' + r.err };
+      const v = r.json?.rates?.ILS;
+      if (v) return { ...r, verdict:'ok', detail:`USD/ILS = ${v}` };
+      return { ...r, verdict:'warn', detail:`HTTP ${r.status} · ${(r.text||'').slice(0,90)}` };
+    }});
+
+  T.push({ grp:'מט״ח ורוחב שוק', name:'^S5TH · רוחב שוק מוכן (דרך codetabs)',
+    run: async () => {
+      const u = 'https://query1.finance.yahoo.com/v8/finance/chart/%5ES5TH?range=1mo&interval=1d';
+      const r = await probe(`https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`);
+      if (!r.cors) return { ...r, verdict:'no', detail:r.err };
+      const o = unwrap(r);
+      const px = o?.chart?.result?.[0]?.meta?.regularMarketPrice;
+      if (px != null) return { ...r, verdict:'ok', detail:`${px}% מהמניות מעל קו 200` };
+      return { ...r, verdict:'no', detail:`הסימבול לא זמין · HTTP ${r.status}` };
+    }});
+
+  return T;
+}
+
+function render() {
+  const box = el('results');
+  box.innerHTML = '';
+  let cur = null, card = null;
+  results.forEach(r => {
+    if (r.grp !== cur) {
+      cur = r.grp;
+      const g = document.createElement('div');
+      g.className = 'grp'; g.textContent = cur;
+      box.appendChild(g);
+      card = document.createElement('div');
+      card.className = 'card';
+      box.appendChild(card);
+    }
+    const pill = r.state==='wait' ? '<span class="pill wait">בודק…</span>'
+      : r.state==='skip' ? '<span class="pill wait">דולג</span>'
+      : r.verdict==='ok' ? '<span class="pill ok">עובד</span>'
+      : r.verdict==='warn' ? '<span class="pill warn">חלקי</span>'
+      : '<span class="pill no">נכשל</span>';
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `<div class="row-main"><div class="row-name">${r.name}</div>`
+      + (r.detail ? `<div class="row-note">${String(r.detail).replace(/</g,'&lt;')}</div>` : '')
+      + `</div>${pill}` + (r.ms!=null ? `<div class="ms">${r.ms}ms</div>` : '');
+    card.appendChild(row);
+  });
+
+  const done = results.filter(r=>r.state==='done');
+  const ok = done.filter(r=>r.verdict==='ok').length;
+  const warn = done.filter(r=>r.verdict==='warn').length;
+  const no = done.filter(r=>r.verdict==='no').length;
+  el('summary').innerHTML =
+    `<div class="stat"><div class="stat-n" style="color:var(--green)">${ok}</div><div class="stat-l">עובד</div></div>`
+  + `<div class="stat"><div class="stat-n" style="color:var(--amber)">${warn}</div><div class="stat-l">חלקי</div></div>`
+  + `<div class="stat"><div class="stat-n" style="color:var(--red)">${no}</div><div class="stat-l">נכשל</div></div>`;
+}
+
+async function runAll() {
+  const btn = el('runBtn');
+  btn.disabled = true; btn.textContent = 'בודק…';
+  const key = el('kFinnhub').value.trim();
+  if (key) { try { localStorage.setItem('finnhub_key', key); } catch(e){} }
+
+  results.length = 0;
+  const tests = buildTests();
+  tests.forEach(t => results.push({ grp:t.grp, name:t.name, state:'wait' }));
+  render();
+
+  // Serial on purpose: parallel bursts are exactly what trips the
+  // rate limiters we are trying to measure.
+  for (let i = 0; i < tests.length; i++) {
+    let out;
+    try { out = await tests[i].run(); }
+    catch (e) { out = { verdict:'no', detail:'חריגה: ' + e.message }; }
+    if (out && out.skip) {
+      Object.assign(results[i], { state:'skip', detail:out.skip });
+    } else {
+      Object.assign(results[i], { state:'done', verdict:out.verdict||'no', detail:out.detail, ms:out.ms });
+    }
+    render();
+  }
+
+  btn.disabled = false; btn.textContent = 'הרץ שוב';
+  buildOutput();
+}
+
+function buildOutput() {
+  const lines = ['אבחון שומר התיק — ' + new Date().toLocaleString('he-IL'),
+                 'origin: ' + location.origin, ''];
+  let cur = null;
+  results.forEach(r => {
+    if (r.grp !== cur) { cur = r.grp; lines.push('## ' + cur); }
+    const mark = r.state==='skip' ? '-' : r.verdict==='ok' ? 'OK  ' : r.verdict==='warn' ? 'WARN' : 'FAIL';
+    lines.push(`[${mark}] ${r.name}${r.ms!=null?' ('+r.ms+'ms)':''} :: ${r.detail||''}`);
+  });
+  el('out').value = lines.join('\n');
+  el('outCard').style.display = 'block';
+}
+
+function copyOut() {
+  const t = el('out');
+  if (!t.value) { buildOutput(); }
+  t.select();
+  try { document.execCommand('copy'); } catch(e){}
+  navigator.clipboard?.writeText(t.value).catch(()=>{});
+}
+
+// reuse the key the app already stored
+try {
+  const k = localStorage.getItem('finnhub_key');
+  if (k) el('kFinnhub').value = k;
+} catch(e) {}
+</script>
+</body>
+</html>
