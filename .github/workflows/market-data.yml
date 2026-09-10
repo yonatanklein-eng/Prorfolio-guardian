@@ -1,0 +1,66 @@
+# Pulls market data once a day and commits it into the repo.
+#
+# The point is that this runs server-side. In the browser the app is subject
+# to CORS on every request and none of the free providers reliably allow it;
+# here there is no CORS, no subrequest cap, and no API key to expose. The page
+# then reads data/market.json from its own origin, which cannot be broken by
+# somebody else's CORS policy.
+name: Collect market data
+
+on:
+  schedule:
+    # Weekdays at 22:00 UTC — after the US close, with time for prices to settle.
+    - cron: '0 22 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Collect market data
+        run: node scripts/fetch-market.mjs
+
+      - name: Commit if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/market.json
+          if git diff --staged --quiet; then
+            echo "data unchanged — nothing to commit"
+          else
+            git commit -m "Update market data ($(date -u +%Y-%m-%d))"
+            git push
+          fi
+
+  # A push made with GITHUB_TOKEN does not trigger other workflows, so the
+  # Pages deploy has to be driven from here rather than left to static.yml.
+  deploy:
+    needs: collect
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main          # pick up the commit the collect job just pushed
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+      - id: deployment
+        uses: actions/deploy-pages@v4

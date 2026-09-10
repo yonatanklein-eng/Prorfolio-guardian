@@ -192,6 +192,8 @@ body{background:var(--bg);color:var(--text);font-family:'Heebo',-apple-system,sa
 .chart-stat-sub.up{color:var(--green);}
 .chart-stat-sub.down{color:var(--red);}
 .chart-range{font-size:11px;color:var(--muted);margin-top:1px;}
+.stale-tag{font-size:10px;font-weight:600;color:var(--muted);background:var(--bg);
+  border-radius:5px;padding:1px 5px;margin-inline-start:6px;vertical-align:middle;}
 .range-row{display:flex;gap:6px;margin-top:10px;}
 .range-btn{flex:1;padding:7px 0;border:none;border-radius:9px;background:var(--bg);
   color:var(--muted);font-family:'Heebo',sans-serif;font-size:12px;font-weight:600;
@@ -338,14 +340,14 @@ canvas{width:100%!important;border-radius:8px;}
 <div class="page" id="page2"><div class="wrap">
 
   <div class="header">
-    <div><div class="header-title">מחירים חיים</div><div class="header-sub">נכסים · מטבעות · אג"ח</div></div>
+    <div><div class="header-title">מחירים</div><div class="header-sub" id="pricesSub">נכסים · מטבעות · אג"ח</div></div>
 
   </div>
 
   <!-- API key setup — shown only when no key is saved -->
   <div id="apiKeyCard" style="display:none;background:var(--blue-bg);border-radius:16px;padding:16px;margin-bottom:12px;">
     <div style="font-size:14px;font-weight:700;margin-bottom:4px;color:var(--blue)">נדרש מפתח Finnhub</div>
-    <div style="font-size:13px;color:var(--text2);margin-bottom:10px;line-height:1.5;">הכנס את מפתח ה-API שלך מ-finnhub.io (חינמי) לקבלת מחירים חיים ומהירים.</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:10px;line-height:1.5;">בלי מפתח מוצגים נתוני סוף יום. מפתח חינמי מ-finnhub.io הופך את המחירים לחיים.</div>
     <div style="display:flex;gap:8px;">
       <input id="apiKeyInput" type="text" placeholder="הכנס מפתח API..." style="flex:1;padding:10px 12px;border-radius:10px;border:1.5px solid var(--blue);background:var(--card);color:var(--text);font-family:'Heebo',sans-serif;font-size:14px;outline:none;" />
       <button onclick="saveFinnhubKey()" style="padding:10px 16px;border-radius:10px;border:none;background:var(--blue);color:#fff;font-family:'Heebo',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">שמור</button>
@@ -374,29 +376,22 @@ canvas{width:100%!important;border-radius:8px;}
 <div class="page" id="page3"><div class="wrap">
 
   <div class="header">
-    <div><div class="header-title">רוחב שוק מלא</div><div class="header-sub">כל מניות ה-S&P 500</div></div>
+    <div><div class="header-title">רוחב שוק</div><div class="header-sub" id="breadthSubtitle">כל מניות ה-S&P 500</div></div>
   </div>
 
   <!-- big breadth gauge -->
   <div class="risk-meter-card">
     <div class="risk-meter-title">אחוז מניות מעל קו 200</div>
     <div class="risk-score" id="fullBreadthScore"><span class="skel"></span></div>
-    <div class="risk-label" id="fullBreadthLabel">לחץ לטעינה</div>
+    <div class="risk-label" id="fullBreadthLabel">טוען…</div>
     <div class="risk-bar-wrap"><div class="risk-bar-mask" id="fullBreadthBar" style="width:100%"></div></div>
-    <div class="risk-desc" id="fullBreadthDesc">בדיקה מלאה של כל ~500 המניות. הטעינה אורכת כדקה.</div>
+    <div class="risk-desc" id="fullBreadthDesc">נספר פעם ביום בצד השרת.</div>
   </div>
 
-  <!-- progress -->
-  <div class="group" id="fullBreadthProgWrap" style="display:none;">
-    <div class="streak-row">
-      <div class="streak-label" id="fullBreadthProgLabel">טוען מניות...</div>
-      <div class="risk-bar-wrap" style="background:var(--bg);"><div class="risk-bar-mask" id="fullBreadthProg" style="width:0%;background:var(--blue);border-radius:8px;"></div></div>
-    </div>
-  </div>
-
-  <!-- load button -->
-  <button id="fullBreadthBtn" onclick="loadFullBreadth()" style="width:100%;padding:16px;border:none;border-radius:14px;background:var(--blue);color:#fff;font-family:'Heebo',sans-serif;font-size:16px;font-weight:700;cursor:pointer;margin-bottom:10px;-webkit-appearance:none;">
-    טען בדיקה מלאה (500 מניות)
+  <!-- Only shown if the daily snapshot could not be read; the count itself
+       no longer happens here, so there is normally nothing to press. -->
+  <button id="fullBreadthBtn" onclick="loadFullBreadth()" style="display:none;width:100%;padding:16px;border:none;border-radius:14px;background:var(--blue);color:#fff;font-family:'Heebo',sans-serif;font-size:16px;font-weight:700;cursor:pointer;margin-bottom:10px;-webkit-appearance:none;">
+    נסה שוב
   </button>
 
   <!-- breakdown -->
@@ -422,79 +417,110 @@ canvas{width:100%!important;border-radius:8px;}
 </div><!-- /pages-wrap -->
 
 <script>
-// Full S&P 500 ticker list
-const SP500 = ["MMM","AOS","ABT","ABBV","ACN","ADBE","AMD","AES","AFL","A","APD","ABNB","AKAM","ALB","ARE","ALGN","ALLE","LNT","ALL","GOOGL","GOOG","MO","AMZN","AMCR","AEE","AEP","AXP","AIG","AMT","AWK","AMP","AME","AMGN","APH","ADI","ANSS","AON","APA","AAPL","AMAT","APTV","ACGL","ADM","ANET","AJG","AIZ","T","ATO","ADSK","ADP","AZO","AVB","AVY","AXON","BKR","BALL","BAC","BAX","BDX","BRK-B","BBY","BIO","TECH","BIIB","BLK","BX","BK","BA","BKNG","BWA","BSX","BMY","AVGO","BR","BRO","BF-B","BLDR","BG","CDNS","CZR","CPT","CPB","COF","CAH","KMX","CCL","CARR","CTLT","CAT","CBOE","CBRE","CDW","CE","COR","CNC","CNP","CF","CHRW","CRL","SCHW","CHTR","CVX","CMG","CB","CHD","CI","CINF","CTAS","CSCO","C","CFG","CLX","CME","CMS","KO","CTSH","CL","CMCSA","CAG","COP","ED","STZ","CEG","COO","CPRT","GLW","CTVA","CSGP","COST","CTRA","CCI","CSX","CMI","CVS","DHR","DRI","DVA","DAY","DECK","DE","DAL","DVN","DXCM","FANG","DLR","DFS","DG","DLTR","D","DPZ","DOV","DOW","DHI","DTE","DUK","DD","EMN","ETN","EBAY","ECL","EIX","EW","EA","ELV","EMR","ENPH","ETR","EOG","EPAM","EQT","EFX","EQIX","EQR","ESS","EL","ETSY","EG","EVRG","ES","EXC","EXPE","EXPD","EXR","XOM","FFIV","FDS","FICO","FAST","FRT","FDX","FIS","FITB","FSLR","FE","FI","FMC","F","FTNT","FTV","FOXA","FOX","BEN","FCX","GRMN","IT","GEHC","GEN","GNRC","GD","GE","GIS","GM","GPC","GILD","GL","GPN","GS","HAL","HIG","HAS","HCA","HSIC","HSY","HES","HPE","HLT","HOLX","HD","HON","HRL","HST","HWM","HPQ","HUBB","HUM","HBAN","HII","IBM","IEX","IDXX","ITW","ILMN","INCY","IR","PODD","INTC","ICE","IFF","IP","IPG","INTU","ISRG","IVZ","INVH","IQV","IRM","JBHT","JBL","JKHY","J","JNJ","JCI","JPM","JNPR","K","KVUE","KDP","KEY","KEYS","KMB","KIM","KMI","KLAC","KHC","KR","LHX","LH","LRCX","LW","LVS","LDOS","LEN","LLY","LIN","LYV","LKQ","LMT","L","LOW","LULU","LYB","MTB","MRO","MPC","MKTX","MAR","MMC","MLM","MAS","MA","MTCH","MKC","MCD","MCK","MDT","MRK","META","MET","MTD","MGM","MCHP","MU","MSFT","MAA","MRNA","MHK","MOH","TAP","MDLZ","MPWR","MNST","MCO","MS","MOS","MSI","MSCI","NDAQ","NTAP","NFLX","NEM","NWSA","NWS","NEE","NKE","NI","NDSN","NSC","NTRS","NOC","NCLH","NRG","NUE","NVDA","NVR","NXPI","ORLY","OXY","ODFL","OMC","ON","OKE","ORCL","OTIS","PCAR","PKG","PANW","PARA","PH","PAYX","PAYC","PYPL","PNR","PEP","PFE","PCG","PM","PSX","PNW","PNC","POOL","PPG","PPL","PFG","PG","PGR","PLD","PRU","PEG","PTC","PSA","PHM","QRVO","PWR","QCOM","DGX","RL","RJF","RTX","O","REG","REGN","RF","RSG","RMD","RVTY","RHI","ROK","ROL","ROP","ROST","RCL","SPGI","CRM","SBAC","SLB","STX","SRE","NOW","SHW","SPG","SWKS","SJM","SNA","SO","LUV","SWK","SBUX","STT","STLD","STE","SYK","SMCI","SYF","SNPS","SYY","TMUS","TROW","TTWO","TPR","TRGP","TGT","TEL","TDY","TFX","TER","TSLA","TXN","TXT","TMO","TJX","TSCO","TT","TDG","TRV","TRMB","TFC","TYL","TSN","USB","UBER","UDR","ULTA","UNP","UAL","UPS","URI","UNH","UHS","VLO","VTR","VLTO","VRSN","VRSK","VZ","VRTX","VTRS","VICI","V","VMC","WAB","WBA","WMT","DIS","WBD","WM","WAT","WEC","WFC","WELL","WST","WDC","WRB","WY","WMB","WTW","GWW","WYNN","XEL","XYL","YUM","ZBRA","ZBH","ZTS"];
+// ═══════════════════════
+// DAILY SNAPSHOT
+// Collected server-side once a day by .github/workflows/market-data.yml and
+// served from our own origin. That is the whole point: same-origin means no
+// CORS, no API key in the page, and no dependence on a free proxy staying up.
+// ═══════════════════════
+let marketData = null, marketPromise = null;
 
+function loadMarketData() {
+  if (marketData) return Promise.resolve(marketData);
+  if (marketPromise) return marketPromise;
+  marketPromise = fetch('data/market.json?_=' + Date.now(), { cache: 'no-store' })
+    .then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+    .then(d => { marketData = d; return d; })
+    .catch(err => { marketPromise = null; throw new Error('אין נתוני יום: ' + err.message); });
+  return marketPromise;
+}
+
+// Age of the snapshot in hours, so the page can say how fresh it is rather
+// than presenting day-old numbers as though they were live.
+function dataAgeHours() {
+  if (!marketData || !marketData.generated) return null;
+  return (Date.now() - Date.parse(marketData.generated)) / 3600000;
+}
+
+function freshnessText() {
+  const h = dataAgeHours();
+  if (h == null) return '';
+  if (h < 1)  return 'עודכן לפני פחות משעה.';
+  if (h < 24) return `עודכן לפני ${Math.round(h)} שעות.`;
+  const d = Math.round(h / 24);
+  return d === 1 ? 'עודכן אתמול.' : `עודכן לפני ${d} ימים.`;
+}
+
+// ═══════════════════════
+// BREADTH — no longer computed in the browser.
+// It used to fire ~500 requests per page load through free CORS proxies,
+// which is why it usually failed. The daily job counts them server-side and
+// this reads the answer.
+// ═══════════════════════
 let fullBreadthLoaded = false;
 
-// Shared S&P 500 breadth — computed once, cached ~15 min, and reused by BOTH
-// the risk meter (page 2) and the full-breadth page (page 4) so they agree.
-let breadthCache = null; // {breadth, above, below, counted, time}
-async function computeBreadth(onProgress) {
-  if (breadthCache && Date.now() - breadthCache.time < 15*60*1000) {
-    if (onProgress) onProgress(SP500.length, breadthCache.counted);
-    return breadthCache;
+function renderBreadth(b) {
+  const scoreEl = document.getElementById('fullBreadthScore');
+  const labelEl = document.getElementById('fullBreadthLabel');
+  const descEl  = document.getElementById('fullBreadthDesc');
+
+  if (!b || b.value == null) {
+    scoreEl.textContent = '—';
+    scoreEl.className = 'risk-score';
+    labelEl.textContent = 'רוחב שוק לא זמין';
+    descEl.textContent = (b && b.error) ? b.error : 'איסוף הנתונים היומי לא הצליח.';
+    document.getElementById('fullBreadthBreakdown').style.display = 'none';
+    return;
   }
-  let above=0, below=0, counted=0, done=0;
-  const BATCH=20, total=SP500.length;
-  for (let i=0; i<SP500.length; i+=BATCH) {
-    const chunk = SP500.slice(i, i+BATCH);
-    const results = await Promise.allSettled(chunk.map(s=>fetchYahoo(encodeURIComponent(s),'300d','1d')));
-    results.forEach(r => {
-      done++;
-      if (r.status!=='fulfilled') return;
-      const cl = r.value?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
-      if (cl.length < 200) return;
-      const price = cl[cl.length-1], sma = cl.slice(-200).reduce((a,b)=>a+b,0)/200;
-      counted++; if (price > sma) above++; else below++;
-    });
-    if (onProgress) onProgress(done, counted);
+
+  const v = b.value;
+  const color = v >= 60 ? 'green' : v >= 45 ? 'amber' : 'red';
+  scoreEl.textContent = v + '%';
+  scoreEl.className = 'risk-score ' + color;
+  labelEl.textContent = {
+    green: 'רוחב שוק בריא — רוב המניות מעל הקו',
+    amber: 'רוחב שוק בינוני — היזהר',
+    red:   'רוחב שוק חלש — השוק על גב מעט מניות',
+  }[color];
+  document.getElementById('fullBreadthBar').style.width = (100 - v) + '%';
+  const sub = document.getElementById('breadthSubtitle');
+  if (sub) sub.textContent = (b.method || '').startsWith('sample')
+    ? `מדגם של ${b.counted} מניות` : 'כל מניות ה-S&P 500';
+
+  // State what the number rests on. A sample and a full count are different
+  // claims, and the page must not present one as the other.
+  const m = b.method || '';
+  const basis = m.startsWith('index')  ? 'מבוסס על מדד ‎^S5TH‎ — כל 500 המניות.'
+              : m.startsWith('census') ? `נספרו ${b.counted} מניות מתוך 500.`
+              : m.startsWith('sample') ? `מדגם של ${b.counted} מניות בלבד — לא ספירה מלאה.`
+              : '';
+  descEl.textContent =
+    `${v}% מהמניות מעל קו ה-200 שלהן. מתחת ל-50% = חולשה פנימית, גם אם המדד עולה. ${basis} ${freshnessText()}`.trim();
+
+  const breakdown = document.getElementById('fullBreadthBreakdown');
+  if (b.above != null && b.counted) {
+    breakdown.style.display = 'block';
+    document.getElementById('fbAbove').textContent = b.above;
+    document.getElementById('fbAbovePct').textContent = Math.round((b.above / b.counted) * 100) + '%';
+    document.getElementById('fbBelow').textContent = b.counted - b.above;
+    document.getElementById('fbBelowPct').textContent = Math.round(((b.counted - b.above) / b.counted) * 100) + '%';
+    document.getElementById('fbTotal').textContent = b.counted;
+  } else {
+    breakdown.style.display = 'none';
   }
-  const result = {breadth: counted>=50 ? Math.round((above/counted)*100) : null, above, below, counted, time:Date.now()};
-  if (counted >= 50) breadthCache = result;
-  return result;
 }
 
 async function loadFullBreadth() {
   const btn = document.getElementById('fullBreadthBtn');
-  btn.disabled = true;
-  btn.textContent = 'טוען... אנא המתן';
-  document.getElementById('fullBreadthProgWrap').style.display = 'block';
-  const progBar = document.getElementById('fullBreadthProg');
-  const progLabel = document.getElementById('fullBreadthProgLabel');
-
-  const {breadth, above, below, counted} = await computeBreadth((done, cnt) => {
-    const pct = Math.round((done/SP500.length)*100);
-    progBar.style.width = pct + '%';
-    progLabel.textContent = `נטענו ${done} מתוך ${SP500.length} (${cnt} בהצלחה)`;
-  });
-
-  if (breadth === null) {
-    document.getElementById('fullBreadthLabel').textContent = 'טעינה נכשלה — נסה שוב';
-    btn.disabled = false; btn.textContent = 'נסה שוב';
-    return;
+  if (btn) btn.style.display = 'none';
+  try {
+    const d = await loadMarketData();
+    renderBreadth(d.breadth);
+    fullBreadthLoaded = true;
+  } catch (err) {
+    renderBreadth({ value: null, error: err.message });
+    if (btn) { btn.style.display = ''; btn.textContent = 'נסה שוב'; }
   }
-
-  const color = breadth>=60?'green':breadth>=45?'amber':'red';
-  const scoreEl = document.getElementById('fullBreadthScore');
-  scoreEl.textContent = breadth + '%';
-  scoreEl.className = 'risk-score ' + color;
-  const labels = {green:'רוחב שוק בריא — רוב המניות מעל הקו',amber:'רוחב שוק בינוני — היזהר',red:'רוחב שוק חלש — השוק על גב מעט מניות'};
-  document.getElementById('fullBreadthLabel').textContent = labels[color];
-  document.getElementById('fullBreadthBar').style.width = (100-breadth) + '%';
-  document.getElementById('fullBreadthDesc').textContent =
-    `${above} מתוך ${counted} מניות נמצאות מעל קו ה-200 שלהן. מתחת ל-50% = סימן חולשה פנימית, גם אם המדד עצמו עולה.`;
-
-  document.getElementById('fullBreadthBreakdown').style.display = 'block';
-  document.getElementById('fbAbove').textContent = above;
-  document.getElementById('fbAbovePct').textContent = Math.round((above/counted)*100) + '%';
-  document.getElementById('fbBelow').textContent = below;
-  document.getElementById('fbBelowPct').textContent = Math.round((below/counted)*100) + '%';
-  document.getElementById('fbTotal').textContent = counted;
-
-  document.getElementById('fullBreadthProgWrap').style.display = 'none';
-  btn.style.display = 'none';
-  fullBreadthLoaded = true;
   tsNow('ts3');
 }
 </script>
@@ -525,6 +551,8 @@ pagesWrap.addEventListener('scroll', () => {
       document.querySelectorAll('.page-dot').forEach((d,i) => d.classList.toggle('active', i===n));
       if (n===1 && !macroLoaded) loadMacro();   // loads once; stays stable after
       if (n===2 && !pricesLoaded) loadPrices();
+      // Breadth is a JSON read now, not a 500-request scan, so it can just load.
+      if (n===3 && !fullBreadthLoaded) loadFullBreadth();
       // page 3 (full breadth) loads on button press, not auto
     }
   }, 80);
@@ -535,56 +563,11 @@ pagesWrap.addEventListener('scroll', () => {
 // ═══════════════════════
 function fmt(n, dec=2) { return n.toLocaleString('he-IL',{minimumFractionDigits:dec,maximumFractionDigits:dec}); }
 
-async function fetchYahoo(symbol, range, interval) {
-  // cache-buster timestamp forces fresh data through the proxy each call
-  const bust = Date.now();
-  // includePrePost=true so we get live extended-hours prices too
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=${interval}&includePrePost=true&_=${bust}`;
-  const proxies = [
-    `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
-    `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-    `https://thingproxy.freeboard.io/fetch/${url}`,
-    `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`
-  ];
-  for (const proxy of proxies) {
-    try {
-      const res = await fetch(proxy, {signal: AbortSignal.timeout(9000), cache: 'no-store'});
-      if (!res.ok) continue;
-      const text = await res.text();
-      if (!text) continue;
-      let obj;
-      try { const o = JSON.parse(text); obj = o.contents ? JSON.parse(o.contents) : o; }
-      catch { try { obj = JSON.parse(text); } catch { continue; } }
-      // make sure it's actually a Yahoo chart payload, not a proxy error page
-      if (obj && obj.chart) return obj;
-    } catch(e) { continue; }
-  }
-  throw new Error('שגיאת חיבור');
-}
-
-async function fetchSinglePrice(symbol) {
-  try {
-    // 5d/1d daily candles give a reliable previous-session close for the
-    // "% today" calc. meta.regularMarketPrice is still the live price.
-    const data = await fetchYahoo(symbol, '5d', '1d');
-    const result = data?.chart?.result?.[0];
-    if (!result) return null;
-    const meta = result.meta || {};
-    const closes = (result.indicators?.quote?.[0]?.close || []).filter(c=>c!=null);
-    let price = meta.regularMarketPrice ?? closes[closes.length-1];
-    // prefer the previous daily close from the series; fall back to meta
-    let prevClose = meta.chartPreviousClose ?? meta.previousClose ?? closes[closes.length-2];
-    // if the live price equals the last series close, the "previous" is the one before it
-    if (price != null && closes.length >= 2 && Math.abs(price - closes[closes.length-1]) < 1e-9) {
-      prevClose = closes[closes.length-2];
-    }
-    if (price == null || prevClose == null || prevClose === 0) return null;
-    const change = ((price - prevClose) / prevClose) * 100;
-    return { price, change };
-  } catch { return null; }
-}
-
+// Live quotes come straight from Finnhub, which allows browser origins.
+// The old path — Yahoo through a chain of five free public CORS proxies —
+// is gone: it was rate-limited, partly dead, and the reason prices went
+// stale. Everything Finnhub's free tier will not serve now arrives in the
+// daily snapshot instead.
 async function fetchFinnhub(symbol) {
   const key = localStorage.getItem('finnhub_key');
   if (!key) return null;
@@ -745,18 +728,15 @@ function drawChart(labels, prices, sma200s, curPrice, curSMA, tries) {
   drawDot(lastPriceX, lastPriceY, priceColor, fmt(curPrice,0));
 }
 
-// the 200-day history changes slowly, so cache it ~30 min and only re-pull the
-// fast live price each cycle — that's what makes the 60s refresh feel instant.
-let smaHistCache = null; // {closes, time}
+// The index itself is not on Finnhub's free tier, but SPY is, and it tracks
+// the S&P closely. Applying SPY's live percentage move to yesterday's close
+// gives a live index level without needing index data we cannot get.
 async function liveGSPC(prevClose) {
-  // fast path: Finnhub SPY gives the live % move; apply it to yesterday's S&P close
   const spy = await fetchFinnhub('SPY');
   if (spy && spy.price != null && spy.change != null && prevClose) {
-    return prevClose * (1 + spy.change/100);
+    return prevClose * (1 + spy.change / 100);
   }
-  // fallback: Yahoo intraday
-  const y = await fetchSinglePrice('%5EGSPC').catch(()=>null);
-  return y && y.price != null ? y.price : null;
+  return null;   // no live overlay; the chart still shows yesterday's close
 }
 
 // Full daily series, held in memory so switching range costs no request.
@@ -799,25 +779,13 @@ async function loadSMA() {
   document.getElementById('errorBox').style.display = 'none';
   belowStreak = loadStreak();
   try {
-    // reuse cached daily history if fresh; otherwise pull the 300-day series once
-    let closes, stamps;
-    if (smaHistCache && Date.now() - smaHistCache.time < 30*60*1000) {
-      closes = smaHistCache.closes.slice();
-      stamps = smaHistCache.stamps.slice();
-    } else {
-      const data = await fetchYahoo('%5EGSPC','300d','1d');
-      const result = data?.chart?.result?.[0];
-      if (!result) throw new Error('אין נתונים');
-      // Closes and timestamps must be filtered together — dropping nulls from
-      // the closes alone shifts every date on the axis by however many gaps
-      // Yahoo left in the series.
-      const rawC = result.indicators?.quote?.[0]?.close || [];
-      const rawT = result.timestamp || [];
-      closes = []; stamps = [];
-      rawC.forEach((c, i) => { if (c != null) { closes.push(c); stamps.push(rawT[i]); } });
-      if (closes.length < 202) throw new Error('אין מספיק נתונים');
-      smaHistCache = {closes: closes.slice(), stamps: stamps.slice(), time: Date.now()};
-    }
+    // Daily history comes from the snapshot the collector built server-side.
+    // Same origin, so no CORS and no proxy in the path; closes and timestamps
+    // were already aligned there.
+    const snap = await loadMarketData();
+    const closes = (snap.sp500 && snap.sp500.closes || []).slice();
+    const stamps = (snap.sp500 && snap.sp500.stamps || []).slice();
+    if (closes.length < 202) throw new Error('אין מספיק נתונים בקובץ היומי');
     // live price overrides today's point so the chart + gap refresh each cycle
     const live = await liveGSPC(closes[closes.length-2]);
     if (live != null) closes[closes.length-1] = live;
@@ -861,6 +829,23 @@ async function loadSMA() {
 // ═══════════════════════
 let macroLoaded = false;
 let macroBusy = false;
+
+// The macro cards were written against Yahoo's response shape. Rather than
+// rewrite each block, hand them the same shape built from the snapshot.
+function macroSeries(key) {
+  const m = marketData && marketData.macro && marketData.macro[key];
+  if (!m || m.value == null) return null;
+  // reconstruct a two-point series: previous close, then latest
+  const prev = m.change != null && m.change !== 0
+    ? m.value / (1 + m.change / 100)
+    : m.value;
+  return { chart: { result: [{ indicators: { quote: [{ close: [prev, m.value] }] } }] } };
+}
+
+function macroValue(key) {
+  const m = marketData && marketData.macro && marketData.macro[key];
+  return m && m.value != null ? m.value : null;
+}
 
 function colorFor(value, greenMax, amberMax) {
   if (value <= greenMax) return 'green';
@@ -1027,6 +1012,9 @@ async function loadMacro() {
   document.getElementById('macroValuation').innerHTML = '';
   document.getElementById('macroMarket').innerHTML = '';
   document.getElementById('macroEcon').innerHTML = '';
+  // Every card below reads the snapshot, so load it before any of them run.
+  // Individual cards handle their own absence, hence the swallowed error.
+  await loadMarketData().catch(() => {});
   const indicators = [];
 
   // 1. CAPE — static (monthly, from multpl.com — last known value)
@@ -1041,10 +1029,8 @@ async function loadMacro() {
   // 2. Buffett Indicator — approximate from market cap / GDP
   // Using Wilshire5000 proxy via ^W5000 divided by ~30T GDP
   try {
-    const wData = await fetchYahoo('%5EW5000','5d','1d');
-    const wResult = wData?.chart?.result?.[0];
-    const wCloses = wResult?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
-    const w5000 = wCloses[wCloses.length-1];
+    const w5000 = macroValue('w5000');
+    if (w5000 == null) throw new Error('אין נתון');
     const gdpB = 29500; // US GDP ~$29.5T in billions
     const buffett = w5000 ? Math.round((w5000/gdpB)*100) : 200;
     const buffColor = colorFor(buffett, 100, 150);
@@ -1061,12 +1047,15 @@ async function loadMacro() {
 
   // 3. Yield Curve — un-inversion timing model (10Y minus 3M)
   try {
-    const [d10,d3m] = await Promise.all([
-      fetchYahoo('%5ETNX','2y','1wk'),
-      fetchYahoo('%5EIRX','2y','1wk')
-    ]);
-    const getSer = d => { const r=d?.chart?.result?.[0]; const ts=r?.timestamp||[]; const cl=(r?.indicators?.quote?.[0]?.close||[]); const out=[]; for(let i=0;i<ts.length;i++) if(cl[i]!=null) out.push({t:ts[i],v:cl[i]}); return out; };
-    const s10 = getSer(d10), s3 = getSer(d3m);
+    // The collector already thinned these to ~weekly points and kept the
+    // stamps aligned with the closes.
+    const getSer = y => {
+      if (!y || !y.closes) return [];
+      return y.closes.map((v, i) => ({ t: y.stamps[i], v })).filter(o => o.t != null && o.v != null);
+    };
+    const snapY = (marketData && marketData.yields) || {};
+    const s10 = getSer(snapY.tnx), s3 = getSer(snapY.irx);
+    if (s10.length < 2 || s3.length < 2) throw new Error('אין נתוני תשואות');
     const nn = Math.min(s10.length, s3.length);
     const spreads = [];
     for (let i=0;i<nn;i++) spreads.push({t:s10[s10.length-nn+i].t, v:s10[s10.length-nn+i].v - s3[s3.length-nn+i].v});
@@ -1110,7 +1099,7 @@ async function loadMacro() {
 
   // 4. VIX
   try {
-    const vData = await fetchYahoo('%5EVIX','5d','1d');
+    const vData = macroSeries('vix');
     const vResult = vData?.chart?.result?.[0];
     const vCloses = vResult?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
     const vix = vCloses[vCloses.length-1];
@@ -1126,7 +1115,7 @@ async function loadMacro() {
 
   // 5. Gold
   try {
-    const gData = await fetchYahoo('GC%3DF','5d','1d');
+    const gData = macroSeries('gold');
     const gResult = gData?.chart?.result?.[0];
     const gCloses = gResult?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
     const gold = gCloses[gCloses.length-1];
@@ -1145,7 +1134,7 @@ async function loadMacro() {
 
   // 6. DXY
   try {
-    const dxyData = await fetchYahoo('DX-Y.NYB','5d','1d');
+    const dxyData = macroSeries('dxy');
     const dxyResult = dxyData?.chart?.result?.[0];
     const dxyCloses = dxyResult?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
     const dxy = dxyCloses[dxyCloses.length-1];
@@ -1161,7 +1150,7 @@ async function loadMacro() {
 
   // 7. Oil
   try {
-    const oilData = await fetchYahoo('CL%3DF','5d','1d');
+    const oilData = macroSeries('oil');
     const oilResult = oilData?.chart?.result?.[0];
     const oilCloses = oilResult?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
     const oil = oilCloses[oilCloses.length-1];
@@ -1190,16 +1179,18 @@ async function loadMacro() {
             <div class="macro-value amber" id="breadthValue">…</div>
             <div class="macro-normal">(נורמלי: מעל 60%)</div>
           </div>
-          <div class="macro-desc" id="breadthDesc">בודק את כל ~500 מניות ה-S&P מול קו ה-200 שלהן. אורך 2–3 דקות…</div>
+          <div class="macro-desc" id="breadthDesc">טוען…</div>
         </div>
       </div>`);
 
-    const {breadth, above, counted} = await computeBreadth((done, cnt) => {
-      const d = document.getElementById('breadthDesc');
-      if (d) d.textContent = `נבדקו ${done} מתוך ${SP500.length} מניות (${cnt} בהצלחה)…`;
-    });
+    // Read the count the daily job already did, instead of re-running a
+    // 500-request scan here. Both this card and page 3 now read the same
+    // snapshot, so they cannot disagree.
+    const snap = await loadMarketData();
+    const b = snap.breadth || {};
+    const breadth = b.value, above = b.above, counted = b.counted;
 
-    if (breadth !== null) {
+    if (breadth != null) {
       const bColor = breadth >= 60 ? 'green' : breadth >= 45 ? 'amber' : 'red';
       indicators.push({color:bColor, weight:2, name:'רוחב שוק'});
       const bv = document.getElementById('breadthValue');
@@ -1209,10 +1200,20 @@ async function loadMacro() {
       const bar = document.getElementById('breadthBar');
       if (bar) bar.className = 'macro-bar-left '+bColor;
       const bd = document.getElementById('breadthDesc');
-      if (bd) bd.textContent = `${above} מתוך ${counted} מניות ה-S&P נמצאות מעל קו ה-200 שלהן. מתחת ל-50% = השוק עולה על גב מעט מניות בלבד, סימן חולשה פנימית.`;
+      if (bd) {
+        const m = b.method || '';
+        const basis = m.startsWith('index')  ? 'לפי מדד ‎^S5TH‎.'
+                    : m.startsWith('census') ? `נספרו ${counted} מניות מתוך 500.`
+                    : m.startsWith('sample') ? `מדגם של ${counted} מניות בלבד.`
+                    : '';
+        const head = above != null
+          ? `${above} מתוך ${counted} מניות ה-S&P מעל קו ה-200 שלהן.`
+          : `${breadth}% ממניות ה-S&P מעל קו ה-200 שלהן.`;
+        bd.textContent = `${head} מתחת ל-50% = השוק עולה על גב מעט מניות, סימן חולשה פנימית. ${basis} ${freshnessText()}`.trim();
+      }
     } else {
       const bd = document.getElementById('breadthDesc');
-      if (bd) bd.textContent = 'טעינת רוחב השוק נכשלה — נסה לפתוח שוב את הדף.';
+      if (bd) bd.textContent = 'רוחב שוק לא זמין — איסוף הנתונים היומי לא הצליח.';
     }
   } catch(e) { /* skip if fails */ }
 
@@ -1251,19 +1252,42 @@ function priceRow(label, data, suffix='') {
   if (!data) return `<div class="group-row"><div class="row-label">${label}</div><div><span class="pill muted">—</span></div></div>`;
   const c = data.change>=0?'green':'red';
   const sign = data.change>=0?'+':'';
+  const stale = data.stale ? '<span class="stale-tag">לא חי</span>' : '';
   return `
   <div class="group-row">
     <div>
-      <div class="row-label">${label}</div>
+      <div class="row-label">${label}${stale}</div>
       <div class="row-value ${c}">${suffix}${fmt(data.price, data.price>100?0:2)}</div>
     </div>
     <div><span class="pill ${c}">${sign}${fmt(data.change)}%</span></div>
   </div>`;
 }
 
-async function fhOrYahoo(fhSym, ySym) {
-  const r = await fetchFinnhub(fhSym);
-  return r || fetchSinglePrice(ySym).catch(() => null);
+// Finnhub's free tier covers US stocks and ETFs — not indices, forex or
+// commodities. So every row quotes the US-listed ETF that tracks the thing we
+// care about. The absolute level differs from the underlying, but the daily
+// percentage move, which is what this page shows, tracks it closely.
+//
+// If Finnhub is unavailable, fall back to the daily snapshot and mark the row
+// as not live rather than showing a stale number as though it were current.
+// Rows with no US-listed ETF — the shekel rate, the Tel Aviv index — exist
+// only in the daily snapshot, so they are always marked as not live.
+function snapshotQuote(key) {
+  const m = marketData && marketData.macro && marketData.macro[key];
+  if (!m || m.value == null) return null;
+  return { price: m.value, change: m.change || 0, stale: true };
+}
+
+async function etfQuote(etf, snapshotKey) {
+  const r = await fetchFinnhub(etf);
+  if (r && r.price != null) return r;
+  // Prefer yesterday's close for the same ETF; fall back to the underlying
+  // only if the ETF was not collected.
+  const q = marketData && marketData.quotes && marketData.quotes[etf];
+  if (q && q.value != null) return { price: q.value, change: q.change || 0, stale: true };
+  const m = snapshotKey && marketData && marketData.macro && marketData.macro[snapshotKey];
+  if (m && m.value != null) return { price: m.value, change: m.change || 0, stale: true };
+  return null;
 }
 
 // render one group on its own — fast Finnhub groups show immediately and
@@ -1282,30 +1306,51 @@ async function loadPrices() {
     const hasKey = !!localStorage.getItem('finnhub_key');
     document.getElementById('apiKeyCard').style.display = hasKey ? 'none' : 'block';
 
+    // The daily snapshot is the fallback for every row, so pull it once up
+    // front rather than per row.
+    await loadMarketData().catch(() => {});
+
+    // Labels name the ETF because the level shown IS the ETF's price, not the
+    // underlying's. GLD is roughly a tenth of an ounce of gold — calling the
+    // row "זהב" alone would put a wrong number under a right label.
     const groups = [
       fillPriceGroup('priceMarkets', [
-        {label:'Nasdaq',    get:()=>fhOrYahoo('^IXIC','%5EIXIC')},
-        {label:'Dow Jones', get:()=>fhOrYahoo('^DJI','%5EDJI')},
-        {label:'ת"א 125',   get:()=>fetchSinglePrice('%5ETA125.TA').catch(()=>null)},
+        {label:'S&P 500 (SPY)',  get:()=>etfQuote('SPY')},
+        {label:'Nasdaq (QQQ)',   get:()=>etfQuote('QQQ')},
+        {label:'Dow Jones (DIA)',get:()=>etfQuote('DIA')},
+        {label:'ת"א 125',        get:()=>snapshotQuote('ta125')},
       ]),
       fillPriceGroup('priceSafehaven', [
-        {label:'זהב ($/אונקיה)',   suffix:'$', get:()=>fhOrYahoo('OANDA:XAU_USD','GC%3DF')},
-        {label:'נפט WTI ($/חבית)', suffix:'$', get:()=>fetchSinglePrice('CL%3DF').catch(()=>null)},
-        {label:'Bitcoin',          suffix:'$', get:()=>fhOrYahoo('BINANCE:BTCUSDT','BTC-USD')},
+        {label:'זהב (GLD)',      suffix:'$', get:()=>etfQuote('GLD','gold')},
+        {label:'נפט WTI (USO)',  suffix:'$', get:()=>etfQuote('USO','oil')},
+        {label:'ביטקוין (IBIT)', suffix:'$', get:()=>etfQuote('IBIT')},
       ]),
       fillPriceGroup('priceBonds', [
-        {label:'אג"ח 10 שנים',  get:()=>fetchSinglePrice('%5ETNX').catch(()=>null)},
-        {label:'אג"ח 3 חודשים', get:()=>fetchSinglePrice('%5EIRX').catch(()=>null)},
-        {label:'אג"ח 30 שנים',  get:()=>fetchSinglePrice('%5ETYX').catch(()=>null)},
+        {label:'אג"ח 20+ שנים (TLT)', get:()=>etfQuote('TLT')},
+        {label:'אג"ח 7–10 שנים (IEF)', get:()=>etfQuote('IEF')},
+        {label:'אג"ח קצר (BIL)',      get:()=>etfQuote('BIL')},
       ]),
       fillPriceGroup('priceFx', [
-        {label:'דולר/שקל',     get:()=>fhOrYahoo('OANDA:USD_ILS','ILS%3DX')},
-        {label:'יורו/דולר',    get:()=>fhOrYahoo('OANDA:EUR_USD','EURUSD%3DX')},
-        {label:'מדד דולר DXY', get:()=>fetchSinglePrice('DX-Y.NYB').catch(()=>null)},
+        {label:'דולר/שקל',        get:()=>snapshotQuote('usdils')},
+        {label:'יורו/דולר',       get:()=>snapshotQuote('eurusd')},
+        {label:'מדד הדולר (UUP)', get:()=>etfQuote('UUP','dxy')},
       ]),
     ];
 
     await Promise.allSettled(groups);
+
+    // Do not call the page live if nothing on it is. priceCache holds what was
+    // actually rendered, including rows that fell back to the snapshot.
+    const shown = Object.values(priceCache);
+    const liveCount = shown.filter(d => d && !d.stale).length;
+    const sub = document.getElementById('pricesSub');
+    if (sub) {
+      sub.textContent = liveCount === 0
+        ? `נתוני סוף יום — ${freshnessText() || 'לא חי'}`
+        : liveCount === shown.length
+          ? 'מחירים חיים · נכסים · מטבעות · אג"ח'
+          : `${liveCount} מתוך ${shown.length} שורות חיות`;
+    }
     tsNow('ts2');
   } finally {
     pricesBusy = false;

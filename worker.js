@@ -98,7 +98,7 @@ async function stooqHistory(symbol, minBars = 30) {
   return { closes, stamps, source: 'stooq' };
 }
 
-async function getHistory(symbol, range, minBars = 30) {
+export async function getHistory(symbol, range, minBars = 30) {
   const errs = [];
   for (const fn of [() => yahooHistory(symbol, range, minBars), () => stooqHistory(symbol, minBars)]) {
     try { return await fn(); } catch (e) { errs.push(e.message); }
@@ -110,7 +110,7 @@ async function getHistory(symbol, range, minBars = 30) {
 // The Workers free plan caps subrequests at 50 per request, so a 500-stock
 // census is off the table here. ^S5TH is the same statistic published as an
 // index — one request — and the sample is only the fallback.
-const SAMPLE = [
+export const SAMPLE = [
   'AAPL','MSFT','NVDA','AMZN','GOOGL','META','BRK-B','LLY','AVGO','JPM',
   'XOM','UNH','V','PG','MA','HD','COST','MRK','ABBV','CVX',
   'PEP','KO','ADBE','WMT','CRM','MCD','CSCO','ACN','TMO','ABT',
@@ -118,7 +118,7 @@ const SAMPLE = [
   'HON','UNP','LOW','SPGI','CAT'
 ];
 
-async function breadthFromIndex() {
+export async function breadthFromIndex() {
   const { closes } = await getHistory('^S5TH', '5d', 2);
   const v = closes[closes.length - 1];
   // ^S5TH is a percentage by definition. Anything outside 0-100 means we were
@@ -128,7 +128,7 @@ async function breadthFromIndex() {
   return { breadth: Math.round(v), above: null, counted: 503, method: 'index:^S5TH' };
 }
 
-async function breadthFromSample() {
+export async function breadthFromSample() {
   let above = 0, counted = 0;
   const settled = await Promise.allSettled(SAMPLE.map(s => getHistory(s, '300d')));
   settled.forEach(r => {
