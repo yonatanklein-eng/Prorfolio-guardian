@@ -1,0 +1,9 @@
+{
+  "name": "shomer-hatik",
+  "private": true,
+  "type": "module",
+  "description": "Marks worker.js as an ES module so the tests can import it, matching the Cloudflare Workers module format.",
+  "scripts": {
+    "test": "node worker.test.mjs"
+  }
+}
