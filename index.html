@@ -191,6 +191,12 @@ body{background:var(--bg);color:var(--text);font-family:'Heebo',-apple-system,sa
 .chart-stat-sub{font-size:13px;margin-top:3px;}
 .chart-stat-sub.up{color:var(--green);}
 .chart-stat-sub.down{color:var(--red);}
+.chart-range{font-size:11px;color:var(--muted);margin-top:1px;}
+.range-row{display:flex;gap:6px;margin-top:10px;}
+.range-btn{flex:1;padding:7px 0;border:none;border-radius:9px;background:var(--bg);
+  color:var(--muted);font-family:'Heebo',sans-serif;font-size:12px;font-weight:600;
+  cursor:pointer;-webkit-appearance:none;transition:background .2s,color .2s;}
+.range-btn.active{background:var(--blue);color:#fff;}
 canvas{width:100%!important;border-radius:8px;}
 
 /* TIMESTAMP */
@@ -243,11 +249,18 @@ canvas{width:100%!important;border-radius:8px;}
     <div class="chart-header-row">
       <div class="chart-stat">
         <div class="chart-stat-label">S&P 500 מול קו 200</div>
+        <div class="chart-range" id="chartRange">—</div>
         <div class="chart-stat-sub" id="spChange">—</div>
       </div>
       <div id="spBadge"><span class="pill muted">טוען</span></div>
     </div>
-    <canvas id="smaChart" height="150"></canvas>
+    <canvas id="smaChart" height="172"></canvas>
+    <div class="range-row">
+      <button class="range-btn" onclick="setChartRange(21,this)">חודש</button>
+      <button class="range-btn" onclick="setChartRange(63,this)">3 חודשים</button>
+      <button class="range-btn active" onclick="setChartRange(120,this)">6 חודשים</button>
+      <button class="range-btn" onclick="setChartRange(252,this)">שנה</button>
+    </div>
   </div>
 
   <div class="group">
@@ -638,7 +651,7 @@ function drawChart(labels, prices, sma200s, curPrice, curSMA, tries) {
   tries = tries || 0;
   const canvas = document.getElementById('smaChart');
   if (!canvas) return;
-  const w = canvas.offsetWidth, h = 150;
+  const w = canvas.offsetWidth, h = 172;
   if (w === 0 && tries < 30) { requestAnimationFrame(()=>drawChart(labels,prices,sma200s,curPrice,curSMA,tries+1)); return; }
   canvas.style.height = h + 'px';
   const ctx = canvas.getContext('2d');
@@ -646,7 +659,7 @@ function drawChart(labels, prices, sma200s, curPrice, curSMA, tries) {
   canvas.width = w * dpr; canvas.height = h * dpr;
   ctx.scale(dpr, dpr);
   // extra right padding for labels
-  const pad = {t:16,r:74,b:16,l:10};
+  const pad = {t:16,r:74,b:28,l:10};
   const allVals = [...prices, ...sma200s.filter(Boolean)];
   const minV = Math.min(...allVals) * 0.995;
   const maxV = Math.max(...allVals) * 1.005;
@@ -654,6 +667,31 @@ function drawChart(labels, prices, sma200s, curPrice, curSMA, tries) {
   const yScale = v => pad.t + (1 - (v-minV)/(maxV-minV)) * (h - pad.t - pad.b);
   const lastBelow = prices[prices.length-1] < sma200s[sma200s.length-1];
   const priceColor = lastBelow ? '#ff3b30' : '#34c759';
+
+  // ── X axis: a tick wherever the month turns over.
+  // `labels` is unix seconds, one per close, aligned upstream in loadSMA.
+  if (labels && labels.length === prices.length) {
+    ctx.font = '500 10px Heebo, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    let lastMonth = -1, lastX = -999;
+    labels.forEach((ts, i) => {
+      if (ts == null) return;
+      const d = new Date(ts * 1000);
+      const mk = d.getFullYear() * 12 + d.getMonth();
+      if (mk === lastMonth) return;
+      lastMonth = mk;
+      const x = xScale(i);
+      // skip the edges, and anything crowding the previous label
+      if (i === 0 || x > w - pad.r - 12 || x - lastX < 36) return;
+      lastX = x;
+      ctx.strokeStyle = 'rgba(142,142,147,0.22)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, h - pad.b); ctx.stroke();
+      ctx.fillStyle = '#8e8e93';
+      ctx.fillText(d.toLocaleDateString('he-IL', {month:'short'}), x, h - pad.b + 6);
+    });
+  }
 
   // fill under price line
   ctx.beginPath();
@@ -721,6 +759,39 @@ async function liveGSPC(prevClose) {
   return y && y.price != null ? y.price : null;
 }
 
+// Full daily series, held in memory so switching range costs no request.
+let seriesCloses = null, seriesStamps = null, chartDays = 120;
+
+function renderChartRange() {
+  if (!seriesCloses || !seriesCloses.length) return;
+  const closes = seriesCloses, stamps = seriesStamps;
+  const n = Math.min(chartDays, closes.length);
+  const chartCloses = closes.slice(-n);
+  const chartStamps = stamps.slice(-n);
+  // slice(0, idx+1) needs 200 entries before calcSMA yields a value, so the
+  // first drawable point is idx 199 — the old `idx < 200` dropped one.
+  const sma200arr = chartCloses.map((_, i) => {
+    const idx = closes.length - n + i;
+    if (idx < 199) return null;
+    return calcSMA(closes.slice(0, idx+1), 200);
+  });
+  drawChart(chartStamps, chartCloses, sma200arr,
+            closes[closes.length-1], calcSMA(closes, 200));
+  const first = chartStamps[0], last = chartStamps[chartStamps.length-1];
+  const cap = document.getElementById('chartRange');
+  if (cap && first && last) {
+    const o = {day:'numeric', month:'short', year:'2-digit'};
+    cap.textContent = new Date(first*1000).toLocaleDateString('he-IL', o)
+      + ' — ' + new Date(last*1000).toLocaleDateString('he-IL', o);
+  }
+}
+
+function setChartRange(days, btn) {
+  chartDays = days;
+  document.querySelectorAll('.range-btn').forEach(b => b.classList.toggle('active', b === btn));
+  renderChartRange();
+}
+
 let smaBusy = false;
 async function loadSMA() {
   if (smaBusy) return;
@@ -729,16 +800,23 @@ async function loadSMA() {
   belowStreak = loadStreak();
   try {
     // reuse cached daily history if fresh; otherwise pull the 300-day series once
-    let closes;
+    let closes, stamps;
     if (smaHistCache && Date.now() - smaHistCache.time < 30*60*1000) {
       closes = smaHistCache.closes.slice();
+      stamps = smaHistCache.stamps.slice();
     } else {
       const data = await fetchYahoo('%5EGSPC','300d','1d');
       const result = data?.chart?.result?.[0];
       if (!result) throw new Error('אין נתונים');
-      closes = result.indicators.quote[0].close.filter(c=>c!=null);
+      // Closes and timestamps must be filtered together — dropping nulls from
+      // the closes alone shifts every date on the axis by however many gaps
+      // Yahoo left in the series.
+      const rawC = result.indicators?.quote?.[0]?.close || [];
+      const rawT = result.timestamp || [];
+      closes = []; stamps = [];
+      rawC.forEach((c, i) => { if (c != null) { closes.push(c); stamps.push(rawT[i]); } });
       if (closes.length < 202) throw new Error('אין מספיק נתונים');
-      smaHistCache = {closes: closes.slice(), time: Date.now()};
+      smaHistCache = {closes: closes.slice(), stamps: stamps.slice(), time: Date.now()};
     }
     // live price overrides today's point so the chart + gap refresh each cycle
     const live = await liveGSPC(closes[closes.length-2]);
@@ -765,14 +843,9 @@ async function loadSMA() {
     else if (belowStreak>=3) setVerdict('exit','🚨','צא עכשיו','שלושה ימים רצופים מתחת לקו 200. מכור את כל ה-40% מניות. ללא היסוסים.');
     else setVerdict('watch','⚠️',`יום ${belowStreak} מתחת`,`S&P מתחת לקו. ${3-belowStreak} ימים נוספים עד לסיגנל יציאה.`);
 
-    // Chart — last 120 trading days
-    const chartCloses = closes.slice(-120);
-    const sma200arr = chartCloses.map((_,i) => {
-      const idx = closes.length - 120 + i;
-      if (idx < 200) return null;
-      return calcSMA(closes.slice(0, idx+1), 200);
-    });
-    drawChart([], chartCloses, sma200arr, price, sma200);
+    // hold the full series so the range buttons redraw without refetching
+    seriesCloses = closes; seriesStamps = stamps;
+    renderChartRange();
     tsNow('ts0');
   } catch(err) {
     document.getElementById('errorBox').textContent=`שגיאה: ${err.message}`;
