@@ -464,6 +464,7 @@ let fullBreadthLoaded = false;
 function breadthBasis(b) {
   const m = (b && b.method) || '';
   if (m.startsWith('index'))  return 'מבוסס על מדד ‎^S5TH‎ — כל 500 המניות, נתון יומי.';
+  if (m.startsWith('batch'))  return `נמדדו ${b.counted} מניות מתוך 500, כולן באותה בדיקה.`;
   if (m.startsWith('census')) return `נספרו ${b.counted} מניות מתוך 500.`;
   if (m.startsWith('sample')) return `מדגם של ${b.counted} מניות בלבד — לא ספירה מלאה.`;
   if (m.startsWith('rotating')) {
@@ -510,7 +511,8 @@ function renderBreadth(b) {
   if (sub) {
     const m = b.method || '';
     sub.textContent = m.startsWith('index') ? 'כל מניות ה-S&P 500'
-                    : m.startsWith('rotating') || m.startsWith('census') || m.startsWith('sample')
+                    : m.startsWith('batch') || m.startsWith('rotating')
+                      || m.startsWith('census') || m.startsWith('sample')
                       ? `${b.counted} מניות נבדקו` : 'כל מניות ה-S&P 500';
   }
 

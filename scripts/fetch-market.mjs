@@ -12,7 +12,7 @@
  * happens once a day on a runner with a real network.
  */
 import { writeFile, mkdir, readFile } from 'node:fs/promises';
-import { getHistory } from '../worker.js';
+import { getHistory, yahooQuoteBatch } from '../worker.js';
 import { SP500 } from './sp500.mjs';
 
 const OUT = 'data/market.json';
@@ -54,13 +54,61 @@ async function breadthFromIndexSeries() {
 // and a throttled run costs freshness rather than correctness.
 const REFRESH_PER_RUN = Number(process.env.BREADTH_REFRESH || 60);
 
+// The whole index in ten requests. v7/finance/quote takes 50 symbols at a
+// time and hands back twoHundredDayAverage per symbol, so there is nothing to
+// compute from history and nothing to spread over days.
+async function breadthFromBatchQuotes() {
+  const CHUNK = 50;
+  let above = 0, counted = 0, missing = 0, requests = 0;
+
+  for (let i = 0; i < SP500.length; i += CHUNK) {
+    const chunk = SP500.slice(i, i + CHUNK);
+    let rows;
+    try {
+      rows = await yahooQuoteBatch(chunk);
+      requests++;
+    } catch (e) {
+      // One retry: a rejected crumb clears the cache, so the retry re-handshakes.
+      if (!/crumb rejected/.test(e.message)) throw e;
+      rows = await yahooQuoteBatch(chunk);
+      requests += 2;
+    }
+    const seen = new Set();
+    rows.forEach(q => {
+      const p = q.regularMarketPrice, m = q.twoHundredDayAverage;
+      if (!isFinite(p) || !isFinite(m) || m <= 0) return;
+      seen.add(q.symbol);
+      counted++;
+      if (p > m) above++;
+    });
+    missing += chunk.length - seen.size;
+    await sleep(300);
+  }
+
+  console.log(`breadth: ${counted} counted, ${missing} missing, ${requests} requests`);
+  if (counted < SP500.length * 0.8) {
+    throw new Error(`batch too incomplete: ${counted} of ${SP500.length}`);
+  }
+  return {
+    value: Math.round((above / counted) * 100),
+    method: `batch:${counted}`,
+    counted, above, below: counted - above,
+  };
+}
+
 async function collectBreadth(prev) {
   try {
     const r = await breadthFromIndexSeries();
     console.log(`breadth: ^S5TH = ${r.value}% (1 request)`);
     return r;
   } catch (e) {
-    console.log(`breadth: ^S5TH unavailable (${e.message}) — rotating instead`);
+    console.log(`breadth: ^S5TH unavailable (${e.message})`);
+  }
+
+  try {
+    return await breadthFromBatchQuotes();
+  } catch (e) {
+    console.log(`breadth: batch quotes failed (${e.message}) — rotating instead`);
   }
 
   const state = Object.assign({}, (prev && prev.breadthState) || {});

@@ -72,6 +72,67 @@ async function yahooHistory(symbol, range, minBars = 30) {
   return { closes, stamps, source: 'yahoo' };
 }
 
+// ── Yahoo batch quotes ───────────────────────────────────────────────
+// v7/finance/quote takes up to 50 symbols per call and returns a ready-made
+// twoHundredDayAverage field. That is the whole breadth calculation for 500
+// names in ten requests and a few seconds — no history downloads, no scan.
+//
+// It needs a session crumb, which is what broke the client libraries in 2024:
+// fetch cookies from Yahoo, trade them for a crumb, then send both. The crumb
+// is good for a while, so cache it.
+let crumbCache = null;
+
+function readSetCookie(res) {
+  const h = res.headers;
+  const all = typeof h.getSetCookie === 'function' ? h.getSetCookie() : null;
+  if (all && all.length) return all.map(c => c.split(';')[0]).join('; ');
+  const one = h.get('set-cookie');
+  return one ? one.split(';')[0] : '';
+}
+
+async function yahooCrumb() {
+  if (crumbCache && Date.now() - crumbCache.t < 25 * 60 * 1000) return crumbCache;
+
+  const r1 = await fetch('https://fc.yahoo.com/', {
+    headers: { 'User-Agent': UA }, redirect: 'manual',
+  });
+  const cookie = readSetCookie(r1);
+  if (!cookie) throw new Error('yahoo: no session cookie');
+
+  const r2 = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', {
+    headers: { 'User-Agent': UA, 'Cookie': cookie, 'Accept': 'text/plain' },
+  });
+  if (!r2.ok) throw new Error('yahoo crumb ' + r2.status);
+  const crumb = (await r2.text()).trim();
+  // A real crumb is a short opaque token; an error page is neither short nor opaque.
+  if (!crumb || crumb.length > 40 || crumb.includes('<')) throw new Error('yahoo: bad crumb');
+
+  crumbCache = { crumb, cookie, t: Date.now() };
+  return crumbCache;
+}
+
+// Returns one row per symbol that answered. Symbols Yahoo does not know are
+// simply absent, so callers must count what came back rather than assume.
+export async function yahooQuoteBatch(symbols) {
+  const { crumb, cookie } = await yahooCrumb();
+  const url = 'https://query1.finance.yahoo.com/v7/finance/quote'
+    + `?symbols=${symbols.map(encodeURIComponent).join(',')}`
+    + '&fields=symbol,regularMarketPrice,twoHundredDayAverage,regularMarketChangePercent'
+    + `&crumb=${encodeURIComponent(crumb)}`;
+  const res = await fetch(url, {
+    headers: { 'User-Agent': UA, 'Cookie': cookie, 'Accept': 'application/json' },
+  });
+  if (res.status === 401 || res.status === 403) {
+    crumbCache = null;                       // stale crumb; let the caller retry
+    throw new Error('yahoo quote ' + res.status + ' (crumb rejected)');
+  }
+  if (!res.ok) throw new Error('yahoo quote ' + res.status);
+  const d = await res.json();
+  const rows = d && d.quoteResponse && d.quoteResponse.result;
+  if (!Array.isArray(rows)) throw new Error('yahoo quote: unexpected shape');
+  return rows;
+}
+
 // ── Upstream 2: FRED (Federal Reserve Bank of St. Louis) ─────────────
 // Official, stable, and free with a key. No CORS headers, which does not
 // matter: this only ever runs server-side.
