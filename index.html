@@ -459,6 +459,26 @@ function freshnessText() {
 // ═══════════════════════
 let fullBreadthLoaded = false;
 
+// One place decides how a breadth reading describes itself, so the risk card
+// and the breadth page can never word the same number differently.
+function breadthBasis(b) {
+  const m = (b && b.method) || '';
+  if (m.startsWith('index'))  return 'מבוסס על מדד ‎^S5TH‎ — כל 500 המניות, נתון יומי.';
+  if (m.startsWith('census')) return `נספרו ${b.counted} מניות מתוך 500.`;
+  if (m.startsWith('sample')) return `מדגם של ${b.counted} מניות בלבד — לא ספירה מלאה.`;
+  if (m.startsWith('rotating')) {
+    // Rotation means the reading is a mosaic of checks made on different days,
+    // so give both the coverage and how far back the oldest one goes.
+    let t = `${b.counted} מניות מתוך 500, מתעדכנות ברוטציה`;
+    if (b.oldestReading) {
+      const days = Math.round((Date.now() - Date.parse(b.oldestReading + 'T00:00:00Z')) / 86400000);
+      if (days >= 1) t += `; הוותיקה ביותר נבדקה לפני ${days} ${days === 1 ? 'יום' : 'ימים'}`;
+    }
+    return t + '.';
+  }
+  return '';
+}
+
 function renderBreadth(b) {
   const scoreEl = document.getElementById('fullBreadthScore');
   const labelEl = document.getElementById('fullBreadthLabel');
@@ -467,7 +487,10 @@ function renderBreadth(b) {
   if (!b || b.value == null) {
     scoreEl.textContent = '—';
     scoreEl.className = 'risk-score';
-    labelEl.textContent = 'רוחב שוק לא זמין';
+    // "building" is not a failure — the rotation simply has not covered enough
+    // of the index yet. Say which it is.
+    const building = b && b.method === 'building';
+    labelEl.textContent = building ? 'עדיין נאסף' : 'רוחב שוק לא זמין';
     descEl.textContent = (b && b.error) ? b.error : 'איסוף הנתונים היומי לא הצליח.';
     document.getElementById('fullBreadthBreakdown').style.display = 'none';
     return;
@@ -484,16 +507,16 @@ function renderBreadth(b) {
   }[color];
   document.getElementById('fullBreadthBar').style.width = (100 - v) + '%';
   const sub = document.getElementById('breadthSubtitle');
-  if (sub) sub.textContent = (b.method || '').startsWith('sample')
-    ? `מדגם של ${b.counted} מניות` : 'כל מניות ה-S&P 500';
+  if (sub) {
+    const m = b.method || '';
+    sub.textContent = m.startsWith('index') ? 'כל מניות ה-S&P 500'
+                    : m.startsWith('rotating') || m.startsWith('census') || m.startsWith('sample')
+                      ? `${b.counted} מניות נבדקו` : 'כל מניות ה-S&P 500';
+  }
 
   // State what the number rests on. A sample and a full count are different
   // claims, and the page must not present one as the other.
-  const m = b.method || '';
-  const basis = m.startsWith('index')  ? 'מבוסס על מדד ‎^S5TH‎ — כל 500 המניות.'
-              : m.startsWith('census') ? `נספרו ${b.counted} מניות מתוך 500.`
-              : m.startsWith('sample') ? `מדגם של ${b.counted} מניות בלבד — לא ספירה מלאה.`
-              : '';
+  const basis = breadthBasis(b);
   descEl.textContent =
     `${v}% מהמניות מעל קו ה-200 שלהן. מתחת ל-50% = חולשה פנימית, גם אם המדד עולה. ${basis} ${freshnessText()}`.trim();
 
@@ -1201,11 +1224,7 @@ async function loadMacro() {
       if (bar) bar.className = 'macro-bar-left '+bColor;
       const bd = document.getElementById('breadthDesc');
       if (bd) {
-        const m = b.method || '';
-        const basis = m.startsWith('index')  ? 'לפי מדד ‎^S5TH‎.'
-                    : m.startsWith('census') ? `נספרו ${counted} מניות מתוך 500.`
-                    : m.startsWith('sample') ? `מדגם של ${counted} מניות בלבד.`
-                    : '';
+        const basis = breadthBasis(b);
         const head = above != null
           ? `${above} מתוך ${counted} מניות ה-S&P מעל קו ה-200 שלהן.`
           : `${breadth}% ממניות ה-S&P מעל קו ה-200 שלהן.`;

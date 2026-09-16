@@ -9,8 +9,13 @@ name: Collect market data
 
 on:
   schedule:
-    # Weekdays at 22:00 UTC — after the US close, with time for prices to settle.
-    - cron: '0 22 * * 1-5'
+    # Three times on weekdays. If ^S5TH is available breadth costs one request
+    # and the extra runs only keep prices fresher; if it is not, breadth is
+    # built by rotating ~60 names per run, and running more often is what keeps
+    # the slowest-refreshed name from going stale.
+    - cron: '0 14 * * 1-5'   # US pre-open
+    - cron: '0 18 * * 1-5'   # midday
+    - cron: '0 22 * * 1-5'   # after the close, once prices have settled
   workflow_dispatch:
 
 permissions:

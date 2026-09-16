@@ -11,7 +11,7 @@
  * load through rate-limited proxies, which is why it usually failed; here it
  * happens once a day on a runner with a real network.
  */
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, readFile } from 'node:fs/promises';
 import { getHistory } from '../worker.js';
 import { SP500 } from './sp500.mjs';
 
@@ -36,41 +36,81 @@ async function withRetry(fn, tries = 3, label = '') {
 // ── Breadth ──────────────────────────────────────────────────────────
 // Try the published index first: it is the same statistic, already computed.
 // Only fall back to counting, and say plainly which one produced the number.
-async function collectBreadth() {
+async function breadthFromIndexSeries() {
+  const { closes } = await getHistory('^S5TH', '5d', 2);
+  const v = closes[closes.length - 1];
+  if (!isFinite(v) || v < 0 || v > 100) throw new Error(`implausible value ${v}`);
+  return { value: Math.round(v), method: 'index:^S5TH', counted: 503, above: null };
+}
+
+// Yahoo's chart endpoint is undocumented and unsanctioned, and it throttles.
+// Firing ~500 requests at it in one run is asking to be blocked, and a run
+// blocked halfway yields a number built from whatever happened to answer —
+// exactly the confident-looking nonsense this app should not print.
+//
+// So prefer ^S5TH, which publishes this statistic as an index and costs one
+// request. Only if that is unavailable, count — and count by ROTATION,
+// refreshing a slice per run and carrying the rest forward. No run bursts,
+// and a throttled run costs freshness rather than correctness.
+const REFRESH_PER_RUN = Number(process.env.BREADTH_REFRESH || 60);
+
+async function collectBreadth(prev) {
   try {
-    const { closes } = await getHistory('^S5TH', '5d', 2);
-    const v = closes[closes.length - 1];
-    if (isFinite(v) && v >= 0 && v <= 100) {
-      console.log(`breadth: ^S5TH = ${v}%`);
-      return { value: Math.round(v), method: 'index:^S5TH', counted: 503, above: null };
-    }
-    console.log(`breadth: ^S5TH gave an implausible ${v}, counting instead`);
+    const r = await breadthFromIndexSeries();
+    console.log(`breadth: ^S5TH = ${r.value}% (1 request)`);
+    return r;
   } catch (e) {
-    console.log(`breadth: ^S5TH unavailable (${e.message}), counting instead`);
+    console.log(`breadth: ^S5TH unavailable (${e.message}) — rotating instead`);
   }
 
-  let above = 0, below = 0, counted = 0, failed = 0;
-  const BATCH = 10;
-  for (let i = 0; i < SP500.length; i += BATCH) {
-    const chunk = SP500.slice(i, i + BATCH);
-    const rs = await Promise.allSettled(chunk.map(s => getHistory(s, '300d', 200)));
-    rs.forEach(r => {
+  const state = Object.assign({}, (prev && prev.breadthState) || {});
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Never-checked first, then oldest.
+  const queue = SP500.slice()
+    .sort((a, b) => ((state[a] && state[a].t) || '').localeCompare((state[b] && state[b].t) || ''));
+  const todo = queue.slice(0, REFRESH_PER_RUN);
+  console.log(`breadth: refreshing ${todo.length} of ${SP500.length} this run`);
+
+  let refreshed = 0, failed = 0;
+  const BATCH = 5;
+  for (let i = 0; i < todo.length; i += BATCH) {
+    const rs = await Promise.allSettled(todo.slice(i, i + BATCH).map(sym => getHistory(sym, '300d', 200)));
+    rs.forEach((r, j) => {
+      const sym = todo[i + j];
       if (r.status !== 'fulfilled') { failed++; return; }
       const c = r.value.closes;
       const m = sma(c, 200);
       if (m == null) { failed++; return; }
-      counted++;
-      if (c[c.length - 1] > m) above++; else below++;
+      state[sym] = { a: c[c.length - 1] > m ? 1 : 0, t: today };
+      refreshed++;
     });
-    if (i % 100 === 0) console.log(`  ...${i + chunk.length}/${SP500.length}`);
-    await sleep(250);   // be a polite client; this runs once a day
+    await sleep(400);
   }
-  console.log(`breadth: counted ${counted}, failed ${failed}`);
-  if (counted < 300) throw new Error(`census too incomplete: only ${counted} of ${SP500.length}`);
+
+  const known = Object.keys(state);
+  const above = known.filter(k => state[k].a === 1).length;
+  console.log(`breadth: refreshed ${refreshed}, failed ${failed}, known ${known.length}/${SP500.length}`);
+
+  if (known.length < 100) {
+    // Too thin to mean anything. Say so rather than print something that
+    // looks like a market reading.
+    return {
+      value: null, method: 'building', counted: known.length,
+      error: `נאספו ${known.length} מתוך ${SP500.length} מניות — עוד לא מספיק לקריאה`,
+      state,
+    };
+  }
+
+  const oldest = known.reduce((acc, k) => (state[k].t < acc ? state[k].t : acc), today);
+
   return {
-    value: Math.round((above / counted) * 100),
-    method: `census:${counted}`,
-    counted, above, below, failed,
+    value: Math.round((above / known.length) * 100),
+    method: `rotating:${known.length}`,
+    counted: known.length,
+    above, below: known.length - above,
+    refreshed, oldestReading: oldest,
+    state,
   };
 }
 
@@ -186,11 +226,16 @@ async function collectYields() {
 const started = Date.now();
 console.log('collecting market data...');
 
+// Rotation builds on what earlier runs established.
+let prev = null;
+try { prev = JSON.parse(await readFile(OUT, 'utf8')); console.log('loaded previous snapshot'); }
+catch { console.log('no previous snapshot — starting fresh'); }
+
 const sp = await withRetry(() => getHistory('^GSPC', '300d', 210), 4, '^GSPC');
 console.log(`sp500: ${sp.closes.length} bars from ${sp.source}`);
 
 const [breadth, macro, yields, quotes, fx] = await Promise.all([
-  collectBreadth().catch(e => ({ value: null, method: 'failed', error: e.message })),
+  collectBreadth(prev).catch(e => ({ value: null, method: 'failed', error: e.message })),
   collectMacro(),
   collectYields(),
   collectQuotes().catch(e => ({ error: e.message })),
@@ -198,8 +243,14 @@ const [breadth, macro, yields, quotes, fx] = await Promise.all([
 ]);
 Object.assign(macro, fx);   // the page reads FX out of macro alongside the rest
 
+// The per-ticker table is bookkeeping for the next run, not something the
+// page renders — keep it out of the breadth block it reads.
+const breadthState = breadth.state;
+delete breadth.state;
+
 const payload = {
   generated: new Date().toISOString(),
+  breadthState,
   sp500: { closes: sp.closes, stamps: sp.stamps, source: sp.source, sma200: sma(sp.closes, 200) },
   breadth,
   macro,
