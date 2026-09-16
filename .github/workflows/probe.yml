@@ -1,0 +1,17 @@
+# Which data hosts are reachable from a GitHub runner? Run on demand only.
+# Exists because two collection runs died on `yahoo 429` and guessing at a
+# replacement is how this went wrong the first time.
+name: Probe data sources
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/probe.mjs
