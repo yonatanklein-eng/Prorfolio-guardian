@@ -157,13 +157,14 @@ async function yahooHistory(symbol, range, minBars = 30) {
 // in early 2026 and now returns an instructions page instead
 // (pydata/pandas-datareader#1012).
 const FRED_MAP = {
-  '^GSPC':     'SP500',
+  '^GSPC':     'SP500',        // index level, daily, 10 years
   '^VIX':      'VIXCLS',
   '^TNX':      'DGS10',
   '^IRX':      'DGS3MO',
   '^TYX':      'DGS30',
   'CL=F':      'DCOILWTICO',
   'DX-Y.NYB':  'DTWEXBGS',
+  '^W5000':    'WILL5000PR',   // Wilshire 5000, for the Buffett indicator
 };
 
 async function fredHistory(symbol, minBars = 30, key = null) {
@@ -220,11 +221,19 @@ async function stooqHistory(symbol, minBars = 30) {
 
 export { fredHistory, yahooHistory, stooqHistory };
 
+// Order matters, and it is set by measurement rather than preference.
+// A probe from a GitHub runner (scripts/probe.mjs) answered:
+//   yahoo query1/query2/getcrumb -> 429 on the first request, always
+//   stooq -> 200, but an HTML key-request page rather than CSV
+//   fred  -> reachable, needs a key
+// So server-side, FRED leads. In a browser or anywhere Yahoo is reachable,
+// FRED is skipped for want of a key and Yahoo answers instead — the same
+// chain works in both places without knowing where it runs.
 export async function getHistory(symbol, range, minBars = 30) {
   const errs = [];
   for (const fn of [
-    () => yahooHistory(symbol, range, minBars),
     () => fredHistory(symbol, minBars),
+    () => yahooHistory(symbol, range, minBars),
     () => stooqHistory(symbol, minBars),
   ]) {
     try { return await fn(); } catch (e) { errs.push(e.message); }

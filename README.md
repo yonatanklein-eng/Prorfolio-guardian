@@ -92,10 +92,27 @@ node worker.test.mjs
 
 ### שרשרת המקורות בצד השרת
 
-`Yahoo ← FRED ← Stooq`. FRED הוא נתוני הבנק הפדרלי — רשמיים ויציבים — ודורש
-מפתח חינמי. בלי המפתח הוא פשוט מדלג, בלי לשבור כלום. כדי להפעיל אותו:
-הרשמה ב־fred.stlouisfed.org, ואז Settings ← Secrets ← Actions ←
-`FRED_API_KEY`.
+`FRED ← Yahoo ← Stooq`, והסדר נקבע לפי מדידה ולא לפי העדפה.
+`scripts/probe.mjs` רץ על runner של GitHub והחזיר:
+
+| מקור | תוצאה מה־runner |
+|---|---|
+| Yahoo — query1, query2, getcrumb | **429 על הבקשה הראשונה, תמיד** |
+| Stooq | 200, אבל דף בקשת מפתח ולא CSV |
+| FRED | נגיש, דורש מפתח |
+| Frankfurter, CoinGecko, Alpha Vantage, Nasdaq | ✅ |
+
+כלומר Yahoo לא זמין משרתי GitHub בכלל — טווחי ה־IP המשותפים חסומים אצלו.
+לכן FRED מוביל בצד השרת. בדפדפן, או בכל מקום שבו Yahoo כן נגיש, FRED מדלג
+על עצמו בהיעדר מפתח ו־Yahoo עונה — אותה שרשרת עובדת בשני המקומות בלי לדעת
+איפה היא רצה.
+
+**המפתח של FRED הוא מה שמפעיל את האיסוף.** הוא חינמי ומיידי:
+הרשמה ב־fred.stlouisfed.org/docs/api/api_key.html, ואז בריפו
+Settings ← Secrets and variables ← Actions ← New repository secret,
+בשם `FRED_API_KEY`.
+
+בלי המפתח האיסוף רץ ונכשל בקול — הוא לא מקמט קובץ ריק.
 
 ## `worker.js` — אופציונלי
 

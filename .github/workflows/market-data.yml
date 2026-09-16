@@ -34,6 +34,12 @@ jobs:
           node-version: '22'
 
       - name: Collect market data
+        # Yahoo answers 429 to this runner on the first request (see
+        # scripts/probe.mjs), so FRED carries the history and macro series.
+        # Without the secret the collector still runs — it just has no upstream
+        # left for those, and fails loudly rather than committing a blank file.
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: node scripts/fetch-market.mjs
 
       - name: Commit if changed
