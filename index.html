@@ -1252,7 +1252,8 @@ function priceRow(label, data, suffix='') {
   if (!data) return `<div class="group-row"><div class="row-label">${label}</div><div><span class="pill muted">—</span></div></div>`;
   const c = data.change>=0?'green':'red';
   const sign = data.change>=0?'+':'';
-  const stale = data.stale ? '<span class="stale-tag">לא חי</span>' : '';
+  const stale = data.stale ? '<span class="stale-tag">לא חי</span>'
+              : data.tag ? `<span class="stale-tag">${data.tag}</span>` : '';
   return `
   <div class="group-row">
     <div>
@@ -1270,8 +1271,61 @@ function priceRow(label, data, suffix='') {
 //
 // If Finnhub is unavailable, fall back to the daily snapshot and mark the row
 // as not live rather than showing a stale number as though it were current.
-// Rows with no US-listed ETF — the shekel rate, the Tel Aviv index — exist
-// only in the daily snapshot, so they are always marked as not live.
+// ── Frankfurter: European Central Bank reference rates ──────────────
+// Free, keyless, unmetered, and documented as callable straight from the
+// browser — so the FX rows no longer have to wait for the daily snapshot.
+// These are official daily reference rates, not tick data, so they are
+// tagged "ECB" rather than presented as live ticks.
+async function fxQuote(symbol, snapshotKey) {
+  try {
+    const from = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
+    const res = await fetch(
+      `https://api.frankfurter.dev/v1/${from}..?base=USD&symbols=${symbol}`,
+      { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    // one entry per published working day, oldest first
+    const days = Object.keys(d.rates || {}).sort();
+    if (days.length < 1) throw new Error('no rates');
+    const last = d.rates[days[days.length - 1]][symbol];
+    const prev = days.length > 1 ? d.rates[days[days.length - 2]][symbol] : null;
+    if (last == null) throw new Error('no rate for ' + symbol);
+    return { price: last, change: prev ? ((last - prev) / prev) * 100 : 0, tag: 'ECB' };
+  } catch {
+    return snapshotQuote(snapshotKey);
+  }
+}
+
+// EUR/USD is quoted the other way round from everything else here: Frankfurter
+// gives USD->EUR, and the row wants dollars per euro.
+async function eurUsdQuote() {
+  const r = await fxQuote('EUR', 'eurusd');
+  if (!r || r.price == null || r.tag !== 'ECB') return r;
+  return { price: 1 / r.price, change: -r.change, tag: 'ECB' };
+}
+
+// ── CoinGecko: keyless, browser-callable, real BTC rather than the ETF ──
+async function btcQuote() {
+  try {
+    const res = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true',
+      { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    const p = d && d.bitcoin && d.bitcoin.usd;
+    if (p == null) throw new Error('no price');
+    return { price: p, change: d.bitcoin.usd_24h_change || 0 };
+  } catch {
+    // Falling back to the spot-bitcoin ETF changes what the number means:
+    // IBIT trades near $58 while bitcoin is near $63,000. Tag it so the row
+    // does not read as a bitcoin price.
+    const r = await etfQuote('IBIT');
+    return r ? { ...r, tag: 'IBIT' } : null;
+  }
+}
+
+// Rows with no US-listed ETF — the Tel Aviv index — exist only in the daily
+// snapshot, so they are always marked as not live.
 function snapshotQuote(key) {
   const m = marketData && marketData.macro && marketData.macro[key];
   if (!m || m.value == null) return null;
@@ -1323,7 +1377,7 @@ async function loadPrices() {
       fillPriceGroup('priceSafehaven', [
         {label:'זהב (GLD)',      suffix:'$', get:()=>etfQuote('GLD','gold')},
         {label:'נפט WTI (USO)',  suffix:'$', get:()=>etfQuote('USO','oil')},
-        {label:'ביטקוין (IBIT)', suffix:'$', get:()=>etfQuote('IBIT')},
+        {label:'ביטקוין',        suffix:'$', get:()=>btcQuote()},
       ]),
       fillPriceGroup('priceBonds', [
         {label:'אג"ח 20+ שנים (TLT)', get:()=>etfQuote('TLT')},
@@ -1331,8 +1385,8 @@ async function loadPrices() {
         {label:'אג"ח קצר (BIL)',      get:()=>etfQuote('BIL')},
       ]),
       fillPriceGroup('priceFx', [
-        {label:'דולר/שקל',        get:()=>snapshotQuote('usdils')},
-        {label:'יורו/דולר',       get:()=>snapshotQuote('eurusd')},
+        {label:'דולר/שקל',        get:()=>fxQuote('ILS','usdils')},
+        {label:'יורו/דולר',       get:()=>eurUsdQuote()},
         {label:'מדד הדולר (UUP)', get:()=>etfQuote('UUP','dxy')},
       ]),
     ];
@@ -1342,7 +1396,7 @@ async function loadPrices() {
     // Do not call the page live if nothing on it is. priceCache holds what was
     // actually rendered, including rows that fell back to the snapshot.
     const shown = Object.values(priceCache);
-    const liveCount = shown.filter(d => d && !d.stale).length;
+    const liveCount = shown.filter(d => d && !d.stale).length;   // tagged rows count as live
     const sub = document.getElementById('pricesSub');
     if (sub) {
       sub.textContent = liveCount === 0

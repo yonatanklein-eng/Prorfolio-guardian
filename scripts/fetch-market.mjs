@@ -81,11 +81,37 @@ const MACRO = [
   ['oil',    'CL=F',      '5d'],
   ['dxy',    'DX-Y.NYB',  '5d'],
   ['w5000',  '^W5000',    '5d'],
-  // No US-listed ETF tracks these, so the page can only get them from here.
-  ['usdils', 'ILS=X',     '5d'],
-  ['eurusd', 'EURUSD=X',  '5d'],
+  // No US-listed ETF tracks this, so the page can only get it from here.
   ['ta125',  '^TA125.TA', '5d'],
 ];
+
+// FX comes from the ECB via Frankfurter rather than Yahoo: official rates,
+// keyless, and the same source the page itself uses, so the snapshot and the
+// live row cannot disagree about what the rate was.
+async function collectFx() {
+  const out = {};
+  const from = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
+  for (const [key, sym, invert] of [['usdils', 'ILS', false], ['eurusd', 'EUR', true]]) {
+    try {
+      const res = await fetch(`https://api.frankfurter.dev/v1/${from}..?base=USD&symbols=${sym}`);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const d = await res.json();
+      const days = Object.keys(d.rates || {}).sort();
+      if (!days.length) throw new Error('no rates');
+      let last = d.rates[days[days.length - 1]][sym];
+      let prev = days.length > 1 ? d.rates[days[days.length - 2]][sym] : null;
+      if (last == null) throw new Error('no rate');
+      let change = prev ? ((last - prev) / prev) * 100 : null;
+      if (invert) { last = 1 / last; if (change != null) change = -change; }
+      out[key] = { value: last, change, asOf: Date.parse(days[days.length - 1] + 'T00:00:00Z') / 1000, source: 'ecb' };
+      console.log(`fx ${key}: ${last.toFixed(4)} (ecb)`);
+    } catch (e) {
+      out[key] = { value: null, error: e.message };
+      console.log(`fx ${key}: FAILED — ${e.message}`);
+    }
+  }
+  return out;
+}
 
 async function collectMacro() {
   const out = {};
@@ -163,12 +189,14 @@ console.log('collecting market data...');
 const sp = await withRetry(() => getHistory('^GSPC', '300d', 210), 4, '^GSPC');
 console.log(`sp500: ${sp.closes.length} bars from ${sp.source}`);
 
-const [breadth, macro, yields, quotes] = await Promise.all([
+const [breadth, macro, yields, quotes, fx] = await Promise.all([
   collectBreadth().catch(e => ({ value: null, method: 'failed', error: e.message })),
   collectMacro(),
   collectYields(),
   collectQuotes().catch(e => ({ error: e.message })),
+  collectFx().catch(e => ({ error: e.message })),
 ]);
+Object.assign(macro, fx);   // the page reads FX out of macro alongside the rest
 
 const payload = {
   generated: new Date().toISOString(),

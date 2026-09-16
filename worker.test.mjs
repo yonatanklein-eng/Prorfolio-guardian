@@ -1,4 +1,4 @@
-import worker from './worker.js';
+import worker, { fredHistory, getHistory } from './worker.js';
 
 // Cloudflare-only global; the router just needs a miss then a put.
 globalThis.caches = { default: { match: async () => undefined, put: async () => {} } };
@@ -109,6 +109,39 @@ check('did not publish 499%', b.breadth !== 499, b.breadth);
 check('fell back to the sample', /^sample:/.test(b.method || ''), b.method);
 check('says the index value was implausible', /implausible/.test(b.indexError || ''), b.indexError);
 check('result is a real percentage', b.breadth >= 0 && b.breadth <= 100, b.breadth);
+
+console.log('\n[8] FRED fallback when Yahoo is down');
+process.env.FRED_API_KEY = 'TESTKEY';
+plan = {
+  'query1.finance.yahoo.com': () => new Response('x', { status: 500 }),
+  'api.stlouisfed.org': () => new Response(JSON.stringify({ observations: [
+      ...Array.from({length: 40}, (_, i) => ({ date: `2026-0${1 + (i % 9)}-0${1 + (i % 9)}`, value: String(4000 + i) })),
+      { date: '2026-09-15', value: '.' },        // FRED marks missing days with a dot
+    ]}), { status: 200 }),
+  'stooq.com': () => new Response('x', { status: 500 }),
+};
+r = await call('/history?symbol=%5EGSPC&range=300d');
+b = await r.json();
+check('source is fred', b.source === 'fred', b.source);
+check('dot rows dropped', !b.closes.some(c => Number.isNaN(c)), b.closes.slice(-3));
+check('closes and stamps aligned', b.closes.length === b.stamps.length);
+
+console.log('\n[8b] no FRED key -> that upstream is skipped, not crashed on');
+delete process.env.FRED_API_KEY;
+let threw = null;
+try { await fredHistory('^GSPC', 30); } catch (e) { threw = e.message; }
+check('fails with a clear reason', /no api key/.test(threw || ''), threw);
+check('unmapped symbol refused too', await fredHistory('NVDA', 30).then(() => false, e => /no series/.test(e.message)));
+
+console.log('\n[9] Stooq answering with its API-key page must not parse as data');
+plan = {
+  'query1.finance.yahoo.com': () => new Response('x', { status: 500 }),
+  // what stooq.com actually returns without a key since early 2026
+  'stooq.com': () => new Response('<html><body>To download data you need an API key...</body></html>', { status: 200 }),
+};
+r = await call('/history?symbol=%5EGSPC&range=300d');
+check('rejected, not treated as a series', r.status === 502, r.status);
+check('error names the failure', (await r.json()).error.includes('all upstreams failed'));
 
 console.log('\n[7] CORS');
 plan = { 'query1.finance.yahoo.com': () => yahooPayload(5) };

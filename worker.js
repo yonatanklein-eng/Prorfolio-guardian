@@ -72,8 +72,51 @@ async function yahooHistory(symbol, range, minBars = 30) {
   return { closes, stamps, source: 'yahoo' };
 }
 
-// ── Upstream 2: Stooq (CSV, no key) ──────────────────────────────────
-// Stooq sends no CORS headers, which is irrelevant here — we are the server.
+// ── Upstream 2: FRED (Federal Reserve Bank of St. Louis) ─────────────
+// Official, stable, and free with a key. No CORS headers, which does not
+// matter: this only ever runs server-side.
+//
+// This replaced Stooq, which stopped serving CSV without an emailed API key
+// in early 2026 and now returns an instructions page instead
+// (pydata/pandas-datareader#1012).
+const FRED_MAP = {
+  '^GSPC':     'SP500',
+  '^VIX':      'VIXCLS',
+  '^TNX':      'DGS10',
+  '^IRX':      'DGS3MO',
+  '^TYX':      'DGS30',
+  'CL=F':      'DCOILWTICO',
+  'DX-Y.NYB':  'DTWEXBGS',
+};
+
+async function fredHistory(symbol, minBars = 30, key = null) {
+  const series = FRED_MAP[symbol];
+  if (!series) throw new Error('fred: no series for ' + symbol);
+  const apiKey = key || (typeof process !== 'undefined' && process.env && process.env.FRED_API_KEY);
+  if (!apiKey) throw new Error('fred: no api key');
+
+  const start = new Date(Date.now() - 400 * 86400000).toISOString().slice(0, 10);
+  const url = `https://api.stlouisfed.org/fred/series/observations`
+    + `?series_id=${series}&api_key=${apiKey}&file_type=json&observation_start=${start}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('fred ' + res.status);
+  const data = await res.json();
+
+  const closes = [], stamps = [];
+  for (const o of data.observations || []) {
+    const v = parseFloat(o.value);          // FRED writes "." for missing days
+    const t = Date.parse(o.date + 'T00:00:00Z') / 1000;
+    if (isFinite(v) && isFinite(t)) { closes.push(v); stamps.push(t); }
+  }
+  if (closes.length < minBars) throw new Error('fred: series too short');
+  return { closes, stamps, source: 'fred' };
+}
+
+// ── Upstream 3: Stooq ────────────────────────────────────────────────
+// Kept last and expected to fail: since early 2026 Stooq answers without a
+// key by returning an HTML instructions page, which the header check below
+// rejects. Left in place because it costs nothing and still works for anyone
+// who has a key.
 const STOOQ_MAP = { '^GSPC': '^spx', '^IXIC': '^ndq', '^DJI': '^dji', '^VIX': '^vix' };
 
 async function stooqHistory(symbol, minBars = 30) {
@@ -98,9 +141,15 @@ async function stooqHistory(symbol, minBars = 30) {
   return { closes, stamps, source: 'stooq' };
 }
 
+export { fredHistory, yahooHistory, stooqHistory };
+
 export async function getHistory(symbol, range, minBars = 30) {
   const errs = [];
-  for (const fn of [() => yahooHistory(symbol, range, minBars), () => stooqHistory(symbol, minBars)]) {
+  for (const fn of [
+    () => yahooHistory(symbol, range, minBars),
+    () => fredHistory(symbol, minBars),
+    () => stooqHistory(symbol, minBars),
+  ]) {
     try { return await fn(); } catch (e) { errs.push(e.message); }
   }
   throw new Error('all upstreams failed: ' + errs.join(' | '));
