@@ -52,26 +52,6 @@ function json(body, origin, maxAge) {
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ' +
            'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36';
 
-// ── Upstream 1: Yahoo ────────────────────────────────────────────────
-async function yahooHistory(symbol, range, minBars = 30) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/`
-    + `${encodeURIComponent(symbol)}?range=${range}&interval=1d`;
-  const res = await fetch(url, { headers: { 'User-Agent': UA, 'Accept': 'application/json' } });
-  if (!res.ok) throw new Error('yahoo ' + res.status);
-  const data = await res.json();
-  const r = data?.chart?.result?.[0];
-  if (!r) throw new Error('yahoo: empty result');
-
-  // Closes and timestamps must stay aligned — filtering one without the other
-  // silently shifts every date in the series.
-  const rawC = r.indicators?.quote?.[0]?.close || [];
-  const rawT = r.timestamp || [];
-  const closes = [], stamps = [];
-  rawC.forEach((c, i) => { if (c != null && rawT[i] != null) { closes.push(c); stamps.push(rawT[i]); } });
-  if (closes.length < minBars) throw new Error('yahoo: series too short');
-  return { closes, stamps, source: 'yahoo' };
-}
-
 // ── Yahoo batch quotes ───────────────────────────────────────────────
 // v7/finance/quote takes up to 50 symbols per call and returns a ready-made
 // twoHundredDayAverage field. That is the whole breadth calculation for 500
@@ -131,6 +111,42 @@ export async function yahooQuoteBatch(symbols) {
   const rows = d && d.quoteResponse && d.quoteResponse.result;
   if (!Array.isArray(rows)) throw new Error('yahoo quote: unexpected shape');
   return rows;
+}
+
+// ── Upstream 1: Yahoo ────────────────────────────────────────────────
+async function yahooHistory(symbol, range, minBars = 30) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/`
+    + `${encodeURIComponent(symbol)}?range=${range}&interval=1d`;
+
+  // From a datacenter IP this endpoint answers 429 on the very first request
+  // unless the call carries a session cookie and crumb — which is what the
+  // first GitHub Actions run hit. From a browser the session already exists,
+  // so the header block stays optional and a failed handshake is not fatal.
+  let session = null;
+  try { session = await yahooCrumb(); } catch { /* try bare; browsers succeed */ }
+
+  const headers = { 'User-Agent': UA, 'Accept': 'application/json' };
+  if (session) headers['Cookie'] = session.cookie;
+
+  const res = await fetch(session ? `${url}&crumb=${encodeURIComponent(session.crumb)}` : url,
+                          { headers });
+  if (res.status === 401 || res.status === 403 || res.status === 429) {
+    crumbCache = null;           // force a fresh handshake on the next attempt
+    throw new Error('yahoo ' + res.status);
+  }
+  if (!res.ok) throw new Error('yahoo ' + res.status);
+  const data = await res.json();
+  const r = data?.chart?.result?.[0];
+  if (!r) throw new Error('yahoo: empty result');
+
+  // Closes and timestamps must stay aligned — filtering one without the other
+  // silently shifts every date in the series.
+  const rawC = r.indicators?.quote?.[0]?.close || [];
+  const rawT = r.timestamp || [];
+  const closes = [], stamps = [];
+  rawC.forEach((c, i) => { if (c != null && rawT[i] != null) { closes.push(c); stamps.push(rawT[i]); } });
+  if (closes.length < minBars) throw new Error('yahoo: series too short');
+  return { closes, stamps, source: 'yahoo' };
 }
 
 // ── Upstream 2: FRED (Federal Reserve Bank of St. Louis) ─────────────
