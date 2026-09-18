@@ -163,6 +163,9 @@ async function collectBreadth(prev) {
 }
 
 // ── Everything the macro page reads ──────────────────────────────────
+// What to ask FRED for when a symbol's ids all fail.
+const SEARCH_HINT = { w5000: 'Wilshire 5000 Total Market Index' };
+
 const MACRO = [
   ['vix',    '^VIX',      '5d'],
   ['gold',   'GC=F',      '5d'],
@@ -201,6 +204,25 @@ async function collectFx() {
   return out;
 }
 
+// Four guessed Wilshire ids all came back 400, so stop guessing: FRED can be
+// asked what it actually has. Runs only when a symbol's candidates all fail,
+// and only logs — the next run uses whatever this turns up.
+async function suggestFredSeries(text) {
+  const key = process.env.FRED_API_KEY;
+  if (!key) return;
+  try {
+    const url = 'https://api.stlouisfed.org/fred/series/search'
+      + `?search_text=${encodeURIComponent(text)}&api_key=${key}&file_type=json`
+      + '&limit=8&order_by=popularity&sort_order=desc';
+    const res = await fetch(url);
+    if (!res.ok) { console.log(`  search "${text}": HTTP ${res.status}`); return; }
+    const d = await res.json();
+    const hits = (d.seriess || []).map(x => `${x.id} (${x.frequency_short}, ${x.observation_end}) — ${x.title}`);
+    console.log(`  FRED has for "${text}":`);
+    hits.forEach(h => console.log('    ' + h));
+  } catch (e) { console.log(`  search "${text}" failed: ${e.message}`); }
+}
+
 async function collectMacro() {
   const out = {};
   for (const [key, symbol, range] of MACRO) {
@@ -220,6 +242,7 @@ async function collectMacro() {
     } catch (e) {
       out[key] = { value: null, error: e.message };
       console.log(`macro ${key}: FAILED — ${e.message}`);
+      if (/fred 400/.test(e.message)) await suggestFredSeries(SEARCH_HINT[key] || key);
     }
   }
   return out;
