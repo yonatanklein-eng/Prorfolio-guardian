@@ -171,7 +171,6 @@ const MACRO = [
   ['gold',   'GC=F',      '5d'],
   ['oil',    'CL=F',      '5d'],
   ['dxy',    'DX-Y.NYB',  '5d'],
-  ['w5000',  '^W5000',    '5d'],
   // No US-listed ETF tracks this, so the page can only get it from here.
   ['ta125',  '^TA125.TA', '5d'],
 ];

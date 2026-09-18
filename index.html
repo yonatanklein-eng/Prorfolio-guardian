@@ -882,6 +882,26 @@ function badgeLabel(color) {
   return color==='green'?'תקין':color==='amber'?'זהירות':'סיכון';
 }
 
+// A card with no data behind it. It deliberately takes no color and pushes no
+// indicator: an unavailable reading is not a neutral reading, and guessing one
+// would move the risk meter on nothing.
+function macroCardUnavailable(name, why) {
+  return `
+  <div class="macro-card">
+    <div class="macro-bar-left"></div>
+    <div class="macro-body">
+      <div class="macro-top">
+        <div class="macro-name">${name}</div>
+        <div class="macro-badge">לא זמין</div>
+      </div>
+      <div class="macro-value-row">
+        <div class="macro-value">—</div>
+      </div>
+      <div class="macro-desc">${why || 'הנתון לא נאסף.'}</div>
+    </div>
+  </div>`;
+}
+
 function macroCardHTML(name, value, displayValue, normalText, pct, color, desc) {
   return `
   <div class="macro-card">
@@ -910,8 +930,17 @@ function updateRiskMeter(indicators) {
     weightedSum += pts(ind.color) * w;
     totalWeight += w;
   });
-  const avg = Math.round(weightedSum / totalWeight);
   const el = document.getElementById('riskScore');
+  if (!totalWeight) {
+    // Nothing was collected. Say so rather than divide by zero and print NaN.
+    el.textContent = '—';
+    el.className = 'risk-score';
+    document.getElementById('riskLabel').textContent = 'מדד הסיכון לא זמין';
+    document.getElementById('riskBarMask').style.width = '100%';
+    document.getElementById('riskDesc').textContent = 'אף אחד מהמדדים לא נאסף.';
+    return;
+  }
+  const avg = Math.round(weightedSum / totalWeight);
   el.textContent = avg;
   const color = avg>=65?'red':avg>=40?'amber':'green';
   el.className = 'risk-score ' + color;
@@ -921,8 +950,8 @@ function updateRiskMeter(indicators) {
   const reds = indicators.filter(i=>i.color==='red').length;
   const ambers = indicators.filter(i=>i.color==='amber').length;
   document.getElementById('riskDesc').innerHTML =
-    `${reds} מדדים באדום, ${ambers} בכתום מתוך ${indicators.length}. ` +
-    `<br><span style="font-size:12px;color:var(--muted)">החישוב משוקלל: CAPE, מדד באפט ועקום התשואות מקבלים משקל כפול-משולש משאר המדדים, כי הם מנבאים חזקים יותר לטווח ארוך.</span>`;
+    `${reds} מדדים באדום, ${ambers} בכתום מתוך ${indicators.length} שנאספו. ` +
+    `<br><span style="font-size:12px;color:var(--muted)">החישוב משוקלל: CAPE ועקום התשואות מקבלים משקל גבוה משאר המדדים, כי הם מנבאים חזקים יותר לטווח ארוך. מדדים שלא נאספו לא נכללים בחישוב.</span>`;
 }
 
 function yieldCurveCardHTML(spread, color, desc, daysSince) {
@@ -1065,9 +1094,10 @@ async function loadMacro() {
       macroCardHTML('מדד באפט', buffett, buffett+'%', '75–100%', buffPct, buffColor,
         'שווי שוק מניות אמריקאי כאחוז מהתוצר. מעל 150% = תמחור יתר. מעל 200% = קיצוני.');
   } catch {
-    indicators.push({color:'red', weight:3, name:'מדד באפט'});
+    // This used to print "~200%" and call it an extreme reading with nothing
+    // behind it, and weigh it into the score at the heaviest weight.
     document.getElementById('macroValuation').innerHTML +=
-      macroCardHTML('מדד באפט','—','~200%','75–100%',80,'red','שווי שוק חצה 200% מהתוצר — רמה קיצונית.');
+      macroCardUnavailable('מדד באפט', 'סדרת ווילשייר 5000 הוסרה מ-FRED, ואין לה כרגע מקור חינמי.');
   }
 
   // 3. Yield Curve — un-inversion timing model (10Y minus 3M)
@@ -1135,7 +1165,8 @@ async function loadMacro() {
       macroCardHTML('VIX — מדד הפחד', vix, vix.toFixed(1), '12–18', vixPct, vixColor,
         'תנודתיות צפויה ב-30 יום. מתחת 18 = שאננות. מעל 30 = פאניקה. מעל 40 = משבר.'));
   } catch {
-    indicators.push({color:'amber', weight:1, name:'VIX'});
+    document.getElementById('macroMarket').insertAdjacentHTML('beforeend',
+      macroCardUnavailable('VIX', 'הנתון לא נאסף בהרצה האחרונה.'));
   }
 
   // 5. Gold
@@ -1154,7 +1185,8 @@ async function loadMacro() {
       macroCardHTML('זהב ($/אונקיה)', gold, '$'+fmt(gold,0), '$1,500–$2,000', goldPct, goldColor,
         `זהב גבוה = חוסר אמון במערכת. שינוי יומי: ${goldChg>=0?'+':''}${goldChg.toFixed(2)}%.`));
   } catch {
-    indicators.push({color:'amber', weight:1, name:'זהב'});
+    document.getElementById('macroMarket').insertAdjacentHTML('beforeend',
+      macroCardUnavailable('זהב', 'הנתון לא נאסף בהרצה האחרונה.'));
   }
 
   // 6. DXY
@@ -1170,7 +1202,8 @@ async function loadMacro() {
       macroCardHTML('דולר — מדד DXY', dxy, dxy.toFixed(1), '95–102', dxyPct, dxyColor,
         'דולר חזק מדי = לחץ על שווקים מתפתחים ועל רווחי חברות רב-לאומיות אמריקאיות.'));
   } catch {
-    indicators.push({color:'amber', weight:1, name:'DXY'});
+    document.getElementById('macroMarket').insertAdjacentHTML('beforeend',
+      macroCardUnavailable('DXY', 'הנתון לא נאסף בהרצה האחרונה.'));
   }
 
   // 7. Oil
@@ -1186,7 +1219,8 @@ async function loadMacro() {
       macroCardHTML('נפט WTI ($/חבית)', oil, '$'+oil.toFixed(1), '$60–$80', oilPct, oilColor,
         'נפט יקר = אינפלציה חוזרת + לחץ על הפד לעצור הורדות ריבית.');
   } catch {
-    indicators.push({color:'amber', weight:1, name:'נפט'});
+    document.getElementById('macroMarket').insertAdjacentHTML('beforeend',
+      macroCardUnavailable('נפט', 'הנתון לא נאסף בהרצה האחרונה.'));
   }
 
   // 8. Market Breadth — uses the SHARED full S&P 500 scan (same number as page 4).
@@ -1233,8 +1267,16 @@ async function loadMacro() {
         bd.textContent = `${head} מתחת ל-50% = השוק עולה על גב מעט מניות, סימן חולשה פנימית. ${basis} ${freshnessText()}`.trim();
       }
     } else {
+      // The card opens with a "loading" badge; leaving it there makes an
+      // unavailable reading look like one still on its way.
       const bd = document.getElementById('breadthDesc');
-      if (bd) bd.textContent = 'רוחב שוק לא זמין — איסוף הנתונים היומי לא הצליח.';
+      if (bd) bd.textContent = 'לא ניתן למדוד רוחב שוק — המקור חוסם את שרתי האיסוף.';
+      const bb = document.getElementById('breadthBadge');
+      if (bb) { bb.textContent = 'לא זמין'; bb.className = 'macro-badge'; }
+      const bv = document.getElementById('breadthValue');
+      if (bv) { bv.textContent = '—'; bv.className = 'macro-value'; }
+      const bar = document.getElementById('breadthBar');
+      if (bar) bar.className = 'macro-bar-left';
     }
   } catch(e) { /* skip if fails */ }
 
