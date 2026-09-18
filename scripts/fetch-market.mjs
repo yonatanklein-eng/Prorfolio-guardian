@@ -163,6 +163,48 @@ async function collectBreadth(prev) {
 }
 
 // ── Everything the macro page reads ──────────────────────────────────
+// ── Buffett indicator ────────────────────────────────────────────────
+// Total US corporate equities over GDP. The Wilshire 5000 series this used to
+// lean on was withdrawn from FRED — FRED's own search returns nothing for it —
+// but the ratio the indicator is actually defined as is still there:
+// BOGZ1LM883164115Q (Fed Z.1, corporate equities, millions) over GDP
+// (BEA, billions). Both quarterly, so take the latest observation of each.
+async function fredLatest(seriesId) {
+  const key = process.env.FRED_API_KEY;
+  if (!key) throw new Error('no api key');
+  const url = 'https://api.stlouisfed.org/fred/series/observations'
+    + `?series_id=${seriesId}&api_key=${key}&file_type=json`
+    + '&sort_order=desc&limit=8';
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`fred ${res.status} (${seriesId})`);
+  const d = await res.json();
+  for (const o of d.observations || []) {          // newest first; "." = missing
+    const v = parseFloat(o.value);
+    if (isFinite(v)) return { value: v, date: o.date };
+  }
+  throw new Error(`${seriesId}: no observations`);
+}
+
+async function collectBuffett() {
+  try {
+    const [eq, gdp] = await Promise.all([
+      fredLatest('BOGZ1LM883164115Q'),
+      fredLatest('GDP'),
+    ]);
+    // equities are millions, GDP billions — divide the first by 1000 to match
+    const pct = (eq.value / 1000) / gdp.value * 100;
+    if (!isFinite(pct) || pct <= 0 || pct > 1000) throw new Error(`implausible ${pct}`);
+    console.log(`buffett: ${pct.toFixed(1)}%  (equities ${eq.date}, gdp ${gdp.date})`);
+    return {
+      value: Math.round(pct), asOf: eq.date, gdpAsOf: gdp.date,
+      source: 'fred', series: 'BOGZ1LM883164115Q/GDP',
+    };
+  } catch (e) {
+    console.log(`buffett: FAILED — ${e.message}`);
+    return { value: null, error: e.message };
+  }
+}
+
 // What to ask FRED for when a symbol's ids all fail.
 const SEARCH_HINT = { w5000: 'Wilshire 5000 Total Market Index' };
 
@@ -305,14 +347,16 @@ catch { console.log('no previous snapshot — starting fresh'); }
 const sp = await withRetry(() => getHistory('^GSPC', '300d', 210), 4, '^GSPC');
 console.log(`sp500: ${sp.closes.length} bars from ${sp.source}`);
 
-const [breadth, macro, yields, quotes, fx] = await Promise.all([
+const [breadth, macro, yields, quotes, fx, buffett] = await Promise.all([
   collectBreadth(prev).catch(e => ({ value: null, method: 'failed', error: e.message })),
   collectMacro(),
   collectYields(),
   collectQuotes().catch(e => ({ error: e.message })),
   collectFx().catch(e => ({ error: e.message })),
+  collectBuffett(),
 ]);
 Object.assign(macro, fx);   // the page reads FX out of macro alongside the rest
+macro.buffett = buffett;
 
 // The per-ticker table is bookkeeping for the next run, not something the
 // page renders — keep it out of the breadth block it reads.

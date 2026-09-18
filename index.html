@@ -1080,24 +1080,26 @@ async function loadMacro() {
     macroCardHTML('CAPE שילר', cape, cape.toFixed(1), '15–20', capePct, capeColor,
       'יחס מחיר/רווח מתוקנן מחזורית. מעל 30 מסמן תמחור יתר היסטורי. כרגע ברמה השנייה הגבוהה בהיסטוריה.');
 
-  // 2. Buffett Indicator — approximate from market cap / GDP
-  // Using Wilshire5000 proxy via ^W5000 divided by ~30T GDP
-  try {
-    const w5000 = macroValue('w5000');
-    if (w5000 == null) throw new Error('אין נתון');
-    const gdpB = 29500; // US GDP ~$29.5T in billions
-    const buffett = w5000 ? Math.round((w5000/gdpB)*100) : 200;
+  // 2. Buffett Indicator — corporate equities over GDP, computed server-side.
+  // The old version divided the Wilshire 5000 INDEX LEVEL by a GDP figure
+  // hardcoded at 29500, which is not the ratio the indicator is defined as —
+  // an index level is not a dollar market cap, and the denominator went stale
+  // on its own. The collector now takes both sides from FRED.
+  const buf = (marketData && marketData.macro && marketData.macro.buffett) || null;
+  if (buf && buf.value != null) {
+    const buffett = buf.value;
     const buffColor = colorFor(buffett, 100, 150);
-    const buffPct = Math.min(100,(buffett/250)*100);
-    indicators.push({color:buffColor, weight:3, name:'מדד באפט'});
+    const buffPct = Math.min(100, (buffett / 250) * 100);
+    indicators.push({color: buffColor, weight: 3, name: 'מדד באפט'});
+    // Both sides are quarterly, so name the quarter rather than let a
+    // three-month-old reading look like today's.
+    const asOf = buf.asOf ? ` נתון לרבעון שמסתיים ב-${buf.asOf}.` : '';
     document.getElementById('macroValuation').innerHTML +=
-      macroCardHTML('מדד באפט', buffett, buffett+'%', '75–100%', buffPct, buffColor,
-        'שווי שוק מניות אמריקאי כאחוז מהתוצר. מעל 150% = תמחור יתר. מעל 200% = קיצוני.');
-  } catch {
-    // This used to print "~200%" and call it an extreme reading with nothing
-    // behind it, and weigh it into the score at the heaviest weight.
+      macroCardHTML('מדד באפט', buffett, buffett + '%', '75–100%', buffPct, buffColor,
+        'שווי שוק המניות האמריקאי כאחוז מהתוצר. מעל 150% = תמחור יתר. מעל 200% = קיצוני.' + asOf);
+  } else {
     document.getElementById('macroValuation').innerHTML +=
-      macroCardUnavailable('מדד באפט', 'סדרת ווילשייר 5000 הוסרה מ-FRED, ואין לה כרגע מקור חינמי.');
+      macroCardUnavailable('מדד באפט', (buf && buf.error) ? ('לא נאסף: ' + buf.error) : 'הנתון לא נאסף.');
   }
 
   // 3. Yield Curve — un-inversion timing model (10Y minus 3M)
