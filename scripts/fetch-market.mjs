@@ -96,6 +96,135 @@ async function breadthFromBatchQuotes() {
   };
 }
 
+// ── Breadth by splitting the problem ─────────────────────────────────
+// Nobody free will sell 500 stocks' worth of daily history every day. But the
+// two halves of "is this stock above its 200-day line" have very different
+// shelf lives:
+//
+//   the PRICE moves every day, and must be today's
+//   the 200-DAY AVERAGE barely moves — one more day shifts it by a fraction
+//   of a percent, since it is an average of two hundred of them
+//
+// So take each from the source that can afford it. Finnhub quotes 60/min and
+// covers US stocks, so all ~500 prices are today's. Twelve Data's 800 credits
+// a day refresh the averages on rotation, a slice per run. The reading is
+// same-day across the whole index; the only staleness is in the half that
+// hardly changes.
+// 493 averages cost 493 of the 800 daily credits, so the whole index fits in
+// one day. Split across the day's runs, with anything refreshed in the last
+// ~20 hours left alone, so later runs cost almost nothing.
+const TD_PER_RUN = Number(process.env.TD_PER_RUN || 250);
+const SMA_FRESH_H = Number(process.env.SMA_FRESH_H || 20);
+const TD_BATCH = 8;                                          // = the 8/min limit
+// Pacing is overridable so tests do not sit through the real rate limits.
+const TD_PACE_MS = Number(process.env.TD_PACE_MS || 61000);
+const FH_PACE_MS = Number(process.env.FH_PACE_MS || 31000);
+
+async function twelveDataSMA(symbols, key) {
+  const url = 'https://api.twelvedata.com/sma'
+    + `?symbol=${symbols.join(',')}&interval=1day&time_period=200&series_type=close`
+    + `&outputsize=1&apikey=${key}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('twelvedata ' + res.status);
+  const d = await res.json();
+  const out = {};
+  // one symbol comes back bare; several come back keyed by symbol
+  const rows = symbols.length === 1 ? { [symbols[0]]: d } : d;
+  for (const sym of symbols) {
+    const r = rows[sym];
+    const v = parseFloat(r && r.values && r.values[0] && r.values[0].sma);
+    if (isFinite(v) && v > 0) out[sym] = v;
+  }
+  return out;
+}
+
+async function finnhubPrice(symbol, key) {
+  const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${key}`);
+  if (!res.ok) throw new Error('finnhub ' + res.status);
+  const d = await res.json();
+  return isFinite(d.c) && d.c > 0 ? d.c : null;
+}
+
+async function breadthFromCombined(prev) {
+  const tdKey = process.env.TWELVEDATA_API_KEY;
+  const fhKey = process.env.FINNHUB_API_KEY;
+  if (!tdKey) throw new Error('no twelvedata key');
+  if (!fhKey) throw new Error('no finnhub key');
+
+  // ── 1. refresh the stalest averages ──
+  const smas = Object.assign({}, (prev && prev.breadthSMA) || {});
+  const now = Date.now();
+  const today = new Date().toISOString().slice(0, 10);
+  const stale = sym => {
+    const e = smas[sym];
+    if (!e || !e.ts) return true;
+    return (now - e.ts) / 3600000 >= SMA_FRESH_H;
+  };
+  const queue = SP500.filter(stale)
+    .sort((a, b) => ((smas[a] && smas[a].ts) || 0) - ((smas[b] && smas[b].ts) || 0));
+  const todo = queue.slice(0, TD_PER_RUN);
+  console.log(`breadth: ${queue.length} averages stale, refreshing ${todo.length}`);
+
+  let refreshed = 0;
+  for (let i = 0; i < todo.length; i += TD_BATCH) {
+    const chunk = todo.slice(i, i + TD_BATCH);
+    try {
+      const got = await twelveDataSMA(chunk, tdKey);
+      for (const [sym, v] of Object.entries(got)) { smas[sym] = { v, t: today, ts: now }; refreshed++; }
+    } catch (e) {
+      console.log(`  sma batch failed: ${e.message}`);
+      if (/429|limit/i.test(e.message)) break;     // out of credits; keep what we have
+    }
+    if (i + TD_BATCH < todo.length) await sleep(TD_PACE_MS);   // stay under 8 credits/min
+  }
+  console.log(`breadth: refreshed ${refreshed} averages, ${Object.keys(smas).length} known`);
+
+  const known = Object.keys(smas);
+  if (!known.length) {
+    return { value: null, method: 'building', counted: 0, smas,
+             error: `עוד לא נאספו ממוצעים` };
+  }
+
+  // ── 2. today's price for everything we have an average for ──
+  let above = 0, counted = 0, priceFails = 0;
+  const FH_BATCH = 30;                                  // under 60/min
+  for (let i = 0; i < known.length; i += FH_BATCH) {
+    const chunk = known.slice(i, i + FH_BATCH);
+    const rs = await Promise.allSettled(chunk.map(sym => finnhubPrice(sym, fhKey)));
+    rs.forEach((r, j) => {
+      const sym = chunk[j];
+      if (r.status !== 'fulfilled' || r.value == null) { priceFails++; return; }
+      counted++;
+      if (r.value > smas[sym].v) above++;
+    });
+    if (i + FH_BATCH < known.length) await sleep(FH_PACE_MS);
+  }
+  console.log(`breadth: priced ${counted}, failed ${priceFails}`);
+
+  // Two different questions. Could we price what we have averages for — if not,
+  // the price source is broken and the next layer should try. And do we cover
+  // enough of the index to call it a reading — if not, keep building, but keep
+  // the table either way rather than throwing the run's work away.
+  if (known.length && counted < known.length * 0.8) {
+    throw new Error(`priced only ${counted} of ${known.length} known`);
+  }
+  if (counted < SP500.length * 0.8) {
+    return {
+      value: null, method: 'building', counted, smas, refreshed,
+      error: `נמדדו ${counted} מתוך ${SP500.length} מניות — הכיסוי עוד נבנה`,
+    };
+  }
+
+  const oldest = known.reduce((acc, k) => (smas[k].t < acc ? smas[k].t : acc), today);
+  return {
+    value: Math.round((above / counted) * 100),
+    method: `combined:${counted}`,
+    counted, above, below: counted - above,
+    refreshed, oldestAverage: oldest,
+    smas,
+  };
+}
+
 async function collectBreadth(prev) {
   try {
     const r = await breadthFromIndexSeries();
@@ -108,7 +237,13 @@ async function collectBreadth(prev) {
   try {
     return await breadthFromBatchQuotes();
   } catch (e) {
-    console.log(`breadth: batch quotes failed (${e.message}) — rotating instead`);
+    console.log(`breadth: batch quotes failed (${e.message})`);
+  }
+
+  try {
+    return await breadthFromCombined(prev);
+  } catch (e) {
+    console.log(`breadth: combined sources failed (${e.message}) — rotating instead`);
   }
 
   const state = Object.assign({}, (prev && prev.breadthState) || {});
@@ -361,11 +496,14 @@ macro.buffett = buffett;
 // The per-ticker table is bookkeeping for the next run, not something the
 // page renders — keep it out of the breadth block it reads.
 const breadthState = breadth.state;
+const breadthSMA = breadth.smas;
 delete breadth.state;
+delete breadth.smas;
 
 const payload = {
   generated: new Date().toISOString(),
   breadthState,
+  breadthSMA,
   sp500: { closes: sp.closes, stamps: sp.stamps, source: sp.source, sma200: sma(sp.closes, 200) },
   breadth,
   macro,

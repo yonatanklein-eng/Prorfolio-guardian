@@ -40,7 +40,14 @@ jobs:
         # left for those, and fails loudly rather than committing a blank file.
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          # Breadth needs both: Finnhub prices all ~500 today, Twelve Data
+          # refreshes their 200-day averages within the daily credit budget.
+          # Missing either just means breadth stays unavailable.
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
         run: node scripts/fetch-market.mjs
+        # Pacing to stay under 8 credits/min means a full refresh takes a while.
+        timeout-minutes: 90
 
       - name: Commit if changed
         run: |
