@@ -205,7 +205,7 @@ async function collectMacro() {
   const out = {};
   for (const [key, symbol, range] of MACRO) {
     try {
-      const { closes, stamps, source } = await withRetry(
+      const { closes, stamps, source, series } = await withRetry(
         () => getHistory(symbol, range, 2), 3, symbol);
       const price = closes[closes.length - 1];
       const prev = closes[closes.length - 2];
@@ -215,7 +215,8 @@ async function collectMacro() {
         asOf: stamps[stamps.length - 1],
         source,
       };
-      console.log(`macro ${key}: ${price.toFixed(2)} (${source})`);
+      if (series) out[key].series = series;
+      console.log(`macro ${key}: ${price.toFixed(2)} (${source}${out[key].series ? ':' + out[key].series : ''})`);
     } catch (e) {
       out[key] = { value: null, error: e.message };
       console.log(`macro ${key}: FAILED — ${e.message}`);

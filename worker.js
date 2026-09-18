@@ -164,20 +164,18 @@ const FRED_MAP = {
   '^TYX':      'DGS30',
   'CL=F':      'DCOILWTICO',
   'DX-Y.NYB':  'DTWEXBGS',
-  '^W5000':    'WILL5000PR',   // Wilshire 5000, for the Buffett indicator
+  // Wilshire 5000, for the Buffett card. WILL5000PR answered 400 on the first
+  // real run, so rather than guess again at which id is current, list the
+  // candidates and let the run report which one answers.
+  '^W5000':    ['WILL5000INDFC', 'WILL5000IND', 'WILL5000PRFC', 'WILL5000PR'],
 };
 
-async function fredHistory(symbol, minBars = 30, key = null) {
-  const series = FRED_MAP[symbol];
-  if (!series) throw new Error('fred: no series for ' + symbol);
-  const apiKey = key || (typeof process !== 'undefined' && process.env && process.env.FRED_API_KEY);
-  if (!apiKey) throw new Error('fred: no api key');
-
+async function fredSeries(seriesId, apiKey, minBars) {
   const start = new Date(Date.now() - 400 * 86400000).toISOString().slice(0, 10);
   const url = `https://api.stlouisfed.org/fred/series/observations`
-    + `?series_id=${series}&api_key=${apiKey}&file_type=json&observation_start=${start}`;
+    + `?series_id=${seriesId}&api_key=${apiKey}&file_type=json&observation_start=${start}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error('fred ' + res.status);
+  if (!res.ok) throw new Error(`fred ${res.status} (${seriesId})`);
   const data = await res.json();
 
   const closes = [], stamps = [];
@@ -186,8 +184,25 @@ async function fredHistory(symbol, minBars = 30, key = null) {
     const t = Date.parse(o.date + 'T00:00:00Z') / 1000;
     if (isFinite(v) && isFinite(t)) { closes.push(v); stamps.push(t); }
   }
-  if (closes.length < minBars) throw new Error('fred: series too short');
-  return { closes, stamps, source: 'fred' };
+  if (closes.length < minBars) throw new Error(`fred: ${seriesId} too short (${closes.length})`);
+  return { closes, stamps, source: 'fred', series: seriesId };
+}
+
+async function fredHistory(symbol, minBars = 30, key = null) {
+  const mapped = FRED_MAP[symbol];
+  if (!mapped) throw new Error('fred: no series for ' + symbol);
+  const apiKey = key || (typeof process !== 'undefined' && process.env && process.env.FRED_API_KEY);
+  if (!apiKey) throw new Error('fred: no api key');
+
+  // A symbol may list several candidate ids; the first that answers wins, and
+  // the winner is reported in `series` so the logs say which one it was.
+  const candidates = Array.isArray(mapped) ? mapped : [mapped];
+  const errs = [];
+  for (const id of candidates) {
+    try { return await fredSeries(id, apiKey, minBars); }
+    catch (e) { errs.push(e.message); }
+  }
+  throw new Error(errs.join(' | '));
 }
 
 // ── Upstream 3: Stooq ────────────────────────────────────────────────
