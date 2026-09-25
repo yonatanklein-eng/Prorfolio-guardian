@@ -454,9 +454,12 @@ async function collectYields() {
   for (const [key, symbol] of [['tnx', '^TNX'], ['irx', '^IRX'], ['tyx', '^TYX']]) {
     try {
       const { closes, stamps, source } = await withRetry(
-        () => getHistory(symbol, '2y', 20), 3, symbol);
+        // Five years, not two: the timing model is about when the curve came
+        // back from its last real inversion, and 2022-24's was too long and too
+        // early to fit inside a two-year window — the card could not see it.
+        () => getHistory(symbol, '5y', 20), 3, symbol);
       // thin a daily series down to roughly weekly to keep the file small
-      const step = Math.max(1, Math.round(closes.length / 104));
+      const step = Math.max(1, Math.round(closes.length / 260));   // ~weekly over 5y
       const c = [], t = [];
       for (let i = 0; i < closes.length; i += step) { c.push(closes[i]); t.push(stamps[i]); }
       if (c.at(-1) !== closes.at(-1)) { c.push(closes.at(-1)); t.push(stamps.at(-1)); }

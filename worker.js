@@ -170,8 +170,17 @@ const FRED_MAP = {
   '^W5000':    ['WILL5000INDFC', 'WILL5000IND', 'WILL5000PRFC', 'WILL5000PR'],
 };
 
-async function fredSeries(seriesId, apiKey, minBars) {
-  const start = new Date(Date.now() - 400 * 86400000).toISOString().slice(0, 10);
+// Calendar days to request for a Yahoo-style range ('5d', '6mo', '5y').
+// Floored at the 400 days every caller got before, so honouring the range can
+// only ever lengthen a series, never cut one that was already working short.
+function rangeToDays(range) {
+  const m = /^(\d+)(d|mo|y)$/.exec(range || '');
+  const days = !m ? 0 : m[2] === 'y' ? +m[1] * 366 : m[2] === 'mo' ? +m[1] * 31 : +m[1];
+  return Math.max(400, days);
+}
+
+async function fredSeries(seriesId, apiKey, minBars, days = 400) {
+  const start = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
   const url = `https://api.stlouisfed.org/fred/series/observations`
     + `?series_id=${seriesId}&api_key=${apiKey}&file_type=json&observation_start=${start}`;
   const res = await fetch(url);
@@ -188,7 +197,7 @@ async function fredSeries(seriesId, apiKey, minBars) {
   return { closes, stamps, source: 'fred', series: seriesId };
 }
 
-async function fredHistory(symbol, minBars = 30, key = null) {
+async function fredHistory(symbol, minBars = 30, key = null, range = null) {
   const mapped = FRED_MAP[symbol];
   if (!mapped) throw new Error('fred: no series for ' + symbol);
   const apiKey = key || (typeof process !== 'undefined' && process.env && process.env.FRED_API_KEY);
@@ -199,7 +208,7 @@ async function fredHistory(symbol, minBars = 30, key = null) {
   const candidates = Array.isArray(mapped) ? mapped : [mapped];
   const errs = [];
   for (const id of candidates) {
-    try { return await fredSeries(id, apiKey, minBars); }
+    try { return await fredSeries(id, apiKey, minBars, rangeToDays(range)); }
     catch (e) { errs.push(e.message); }
   }
   throw new Error(errs.join(' | '));
@@ -247,7 +256,7 @@ export { fredHistory, yahooHistory, stooqHistory };
 export async function getHistory(symbol, range, minBars = 30) {
   const errs = [];
   for (const fn of [
-    () => fredHistory(symbol, minBars),
+    () => fredHistory(symbol, minBars, null, range),
     () => yahooHistory(symbol, range, minBars),
     () => stooqHistory(symbol, minBars),
   ]) {

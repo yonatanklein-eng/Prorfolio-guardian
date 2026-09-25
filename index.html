@@ -967,8 +967,14 @@ function updateRiskMeter(indicators) {
 
 function yieldCurveCardHTML(spread, color, desc, daysSince) {
   const val = spread===null ? 'הפוך/התיישר' : (spread>=0?'+':'')+spread+'%';
+  // No colour means no verdict — the history was too short to judge. Without
+  // this, badgeLabel(null) falls through to "risk" and the banner below falls
+  // through to "structure is fine": two opposite claims, both unfounded.
+  const judged = !!color;
+  color = color || '';
   let bannerBig;
-  if (spread===null) bannerBig='⏳ אחרי התיישרות';
+  if (!judged) bannerBig='ℹ️ היסטוריה קצרה מדי לשיפוט';
+  else if (spread===null) bannerBig='⏳ אחרי התיישרות';
   else if (spread<0) bannerBig='🔻 העקום הפוך';
   else if (daysSince!==null && daysSince<=210) bannerBig=`⏳ ${daysSince} ימים מאז ההתיישרות`;
   else if (daysSince!==null) bannerBig='⚠️ אחרי חלון הסיכון';
@@ -980,7 +986,7 @@ function yieldCurveCardHTML(spread, color, desc, daysSince) {
       <div class="macro-body">
         <div class="macro-top">
           <div class="macro-name">עקום תשואות — מד מיתון</div>
-          <div class="macro-badge ${color}">${badgeLabel(color)}</div>
+          <div class="macro-badge ${color}">${judged ? badgeLabel(color) : 'לא נקבע'}</div>
         </div>
         <div class="macro-value-row">
           <div class="macro-value ${color}">${val}</div>
@@ -1129,18 +1135,34 @@ async function loadMacro() {
     for (let i=0;i<nn;i++) spreads.push({t:s10[s10.length-nn+i].t, v:s10[s10.length-nn+i].v - s3[s3.length-nn+i].v});
     const cur = parseFloat(spreads[spreads.length-1].v.toFixed(2));
 
-    // find last un-inversion (negative -> positive crossing)
-    let crossIdx=-1;
-    for(let i=spreads.length-1;i>0;i--){ if(spreads[i].v>=0 && spreads[i-1].v<0){crossIdx=i;break;} }
-    let daysSince = crossIdx>0 ? Math.round((spreads[spreads.length-1].t - spreads[crossIdx].t)/86400) : null;
-    const everInverted = spreads.some(s=>s.v<0);
+    // A spread a couple of basis points under zero is noise, not an inversion.
+    // Counting it as one is what had this card report "two inversions" off
+    // dips to -0.02% while the real 2022-24 inversion sat outside its window.
+    const INV = -0.10;
 
-    // count how many separate inversions happened in the last 2 years
-    let inversionCount = 0, wasNeg = false;
-    spreads.forEach(s => { if (s.v < 0 && !wasNeg) { inversionCount++; wasNeg = true; } if (s.v >= 0) wasNeg = false; });
+    // The un-inversion that matters is the first return to >= 0 after the most
+    // recent stretch that was genuinely below INV — not the last time the line
+    // happened to tick across zero.
+    let lastInvIdx = -1;
+    for (let i = spreads.length - 1; i >= 0; i--) { if (spreads[i].v < INV) { lastInvIdx = i; break; } }
+    let crossIdx = -1;
+    if (lastInvIdx >= 0) {
+      for (let i = lastInvIdx + 1; i < spreads.length; i++) { if (spreads[i].v >= 0) { crossIdx = i; break; } }
+    }
+    const daysSince = crossIdx >= 0 ? Math.round((spreads[spreads.length-1].t - spreads[crossIdx].t)/86400) : null;
+    const everInverted = lastInvIdx >= 0;
+
+    let inversionCount = 0, inEpisode = false;
+    spreads.forEach(s => {
+      if (s.v < INV && !inEpisode) { inversionCount++; inEpisode = true; }
+      if (s.v >= 0) inEpisode = false;
+    });
+    // Say the window the data actually covers, rather than a fixed "two years".
+    const spanYears = Math.max(1, Math.round((spreads[spreads.length-1].t - spreads[0].t) / (365.25*86400)));
+    const trough = Math.min(...spreads.map(s => s.v));
 
     let ycColor, ycDesc, stepIdx;
-    if (cur < 0) {
+    if (cur < INV) {
       ycColor='red'; stepIdx=1;
       ycDesc=`היפוך פעיל — הריבית הקצרה גבוהה מהארוכה (הפרש ${cur}%). זהו האות ההיסטורי החזק ביותר למיתון מתקרב.`;
     } else if (daysSince!==null && daysSince<=210) {
@@ -1151,12 +1173,19 @@ async function loadMacro() {
       ycDesc=`הפרש צר מאוד (${cur}%) — העקום כמעט שטוח. סוף מחזור קלאסי, ערנות מוגברת.`;
     } else if (everInverted && daysSince!==null) {
       ycColor='amber'; stepIdx=3;
-      ycDesc=`היה היפוך בשנתיים האחרונות (${inversionCount} פעמים), והעקום התיישר לפני ${daysSince} ימים — מעבר לחלון ההיסטורי הרגיל (210 יום). <b>מה זה אומר:</b> או שהאיתות "פספס" הפעם, או שצפוי היפוך נוסף לפני המיתון (כפי שקרה ב-1998 ו-1967). לפי <u>המדד הזה בלבד</u> הסיכון המיידי ירד — אך זה לא מבטל את שאר מדדי הסיכון.`;
+      ycDesc=`ב-${spanYears} השנים האחרונות העקום התהפך ${inversionCount === 1 ? 'פעם אחת' : inversionCount + ' פעמים'} (שפל של ${trough.toFixed(2)}%), וחזר לחיובי לפני ${daysSince} ימים — מעבר לחלון ההיסטורי הרגיל (210 יום). <b>מה זה אומר:</b> או שהאיתות "פספס" הפעם, או שצפוי היפוך נוסף לפני המיתון (כפי שקרה ב-1998 ו-1967). לפי <u>המדד הזה בלבד</u> הסיכון המיידי ירד — אך זה לא מבטל את שאר מדדי הסיכון.`;
+    } else if (spanYears < 3) {
+      // Not having seen an inversion in a short window is not having seen
+      // there was none. The 2022-24 inversion was long and early enough that a
+      // one-year window misses it entirely, and calling that an all-clear would
+      // pull the risk score down at weight 3 on the strength of missing data.
+      ycColor=null; stepIdx=0;
+      ycDesc=`העקום חיובי (${cur}%), אבל יש רק ${spanYears === 1 ? 'שנה אחת' : spanYears + ' שנים'} של נתונים — קצר מכדי לראות היפוך קודם, אז אין כאן אמירה על סיכון. לא נכלל בציון.`;
     } else {
       ycColor='green'; stepIdx=0;
-      ycDesc=`העקום חיובי ורחב (${cur}%), לא היה היפוך לאחרונה. מבנה תקין — אין אזהרת מיתון.`;
+      ycDesc=`העקום חיובי ורחב (${cur}%), ולא היה היפוך של ממש ב-${spanYears} השנים האחרונות. מבנה תקין — אין אזהרת מיתון.`;
     }
-    indicators.push({color:ycColor, weight:3, name:'עקום תשואות'});
+    if (ycColor) indicators.push({color:ycColor, weight:3, name:'עקום תשואות'});
     document.getElementById('macroMarket').insertAdjacentHTML('beforeend', yieldCurveCardHTML(cur, ycColor, ycDesc, daysSince));
     drawYieldChart(spreads, crossIdx);
     renderYieldTimeline(stepIdx);
