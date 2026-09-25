@@ -15,3 +15,5 @@ jobs:
         with:
           node-version: '22'
       - run: node scripts/probe.mjs
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
