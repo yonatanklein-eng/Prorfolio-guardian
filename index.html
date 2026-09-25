@@ -406,7 +406,7 @@ canvas{width:100%!important;border-radius:8px;}
     </div>
     <div class="group-row">
       <div><div class="row-label">נבדקו בהצלחה</div><div class="row-value blue" id="fbTotal">—</div></div>
-      <div><span class="pill blue">מתוך 500</span></div>
+      <div><span class="pill blue" id="fbUniverse">מתוך 500</span></div>
     </div>
   </div>
 
@@ -464,29 +464,40 @@ let fullBreadthLoaded = false;
 function breadthBasis(b) {
   const m = (b && b.method) || '';
   if (m.startsWith('index'))  return 'מבוסס על מדד ‎^S5TH‎ — כל 500 המניות, נתון יומי.';
-  if (m.startsWith('batch'))  return `נמדדו ${b.counted} מניות מתוך 500, כולן באותה בדיקה.`;
+  // The index holds 503 tickers for 500 companies (a few have two share
+  // classes), and the collector says how many it counted against. Older
+  // snapshots do not, so fall back to the round number.
+  const of = `מתוך ${(b && b.universe) || 500} המניות שבמדד`;
+  // Membership is read fresh each run; if that failed, the count was made
+  // against a stored copy, and the reader should know which.
+  let list = '';
+  if (b && b.universeSource === 'fallback') {
+    const d = b.universeAsOf ? new Date(b.universeAsOf + 'T00:00:00Z').toLocaleDateString('he-IL') : '';
+    list = ` רשימת המניות העדכנית לא נטענה, ולכן נספר לפי רשימה שמורה${d ? ' מתאריך ' + d : ''}.`;
+  }
+  if (m.startsWith('batch'))  return `נמדדו ${b.counted} ${of}, כולן באותה בדיקה.` + list;
   if (m.startsWith('combined')) {
     // Prices are today's; the averages they are compared against were
     // refreshed on rotation. Say so — a 200-day average barely moves, but the
     // page should not imply both halves are equally fresh.
-    let t = `נמדדו ${b.counted} מניות מתוך 500: מחיר של היום מול הממוצע שלהן`;
+    let t = `נמדדו ${b.counted} ${of}: מחיר של היום מול הממוצע שלהן`;
     if (b.oldestAverage) {
       const days = Math.round((Date.now() - Date.parse(b.oldestAverage + 'T00:00:00Z')) / 86400000);
-      if (days >= 1) t += `, שרוענן לאחרונה לפני עד ${days} ${days === 1 ? 'יום' : 'ימים'}`;
+      if (days >= 1) t += `; הוותיק שבממוצעים רוענן לפני ${days === 1 ? 'יום' : days + ' ימים'}`;
     }
-    return t + '.';
+    return t + '.' + list;
   }
-  if (m.startsWith('census')) return `נספרו ${b.counted} מניות מתוך 500.`;
+  if (m.startsWith('census')) return `נספרו ${b.counted} ${of}.` + list;
   if (m.startsWith('sample')) return `מדגם של ${b.counted} מניות בלבד — לא ספירה מלאה.`;
   if (m.startsWith('rotating')) {
     // Rotation means the reading is a mosaic of checks made on different days,
     // so give both the coverage and how far back the oldest one goes.
-    let t = `${b.counted} מניות מתוך 500, מתעדכנות ברוטציה`;
+    let t = `${b.counted} ${of}, מתעדכנות ברוטציה`;
     if (b.oldestReading) {
       const days = Math.round((Date.now() - Date.parse(b.oldestReading + 'T00:00:00Z')) / 86400000);
-      if (days >= 1) t += `; הוותיקה ביותר נבדקה לפני ${days} ${days === 1 ? 'יום' : 'ימים'}`;
+      if (days >= 1) t += `; הוותיקה ביותר נבדקה לפני ${days === 1 ? 'יום' : days + ' ימים'}`;
     }
-    return t + '.';
+    return t + '.' + list;
   }
   return '';
 }
@@ -541,6 +552,7 @@ function renderBreadth(b) {
     document.getElementById('fbBelow').textContent = b.counted - b.above;
     document.getElementById('fbBelowPct').textContent = Math.round(((b.counted - b.above) / b.counted) * 100) + '%';
     document.getElementById('fbTotal').textContent = b.counted;
+    document.getElementById('fbUniverse').textContent = 'מתוך ' + (b.universe || 500);
   } else {
     breakdown.style.display = 'none';
   }
