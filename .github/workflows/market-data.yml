@@ -9,10 +9,9 @@ name: Collect market data
 
 on:
   schedule:
-    # Three times on weekdays. If ^S5TH is available breadth costs one request
-    # and the extra runs only keep prices fresher; if it is not, breadth is
-    # built by rotating ~60 names per run, and running more often is what keeps
-    # the slowest-refreshed name from going stale.
+    # Three times on weekdays. Breadth prices every stock in the index on each
+    # run; the 200-day averages it compares them with are refreshed on a
+    # rotation that fits Twelve Data's daily credits, a slice per run.
     - cron: '0 14 * * 1-5'   # US pre-open
     - cron: '0 18 * * 1-5'   # midday
     - cron: '0 22 * * 1-5'   # after the close, once prices have settled
@@ -22,6 +21,14 @@ permissions:
   contents: write
   pages: write
   id-token: write
+
+# One collection at a time. Every run reads data/market.json at its start and
+# writes it at its end, so two overlapping runs would each build on a snapshot
+# the other is about to replace, and the second push could not be rebased.
+# A run started while one is going waits for it instead.
+concurrency:
+  group: market-data
+  cancel-in-progress: false
 
 jobs:
   collect:
@@ -61,12 +68,17 @@ jobs:
             # A run with breadth refreshes can take half an hour, and main may
             # move in the meantime. A bare push would then be rejected and the
             # whole run's collection lost. This job only ever writes
-            # data/market.json, so rebasing onto whatever landed cannot conflict.
+            # data/market.json, and runs never overlap (see concurrency), so
+            # rebasing onto whatever landed cannot conflict.
+            pushed=
             for attempt in 1 2 3; do
-              git pull --rebase origin main && git push && break
+              if git pull --rebase origin main && git push; then pushed=1; break; fi
+              git rebase --abort 2>/dev/null || true
               echo "push attempt $attempt failed, retrying"
               sleep 5
             done
+            # Say so if it never landed, rather than finish green with nothing saved.
+            [ -n "$pushed" ] || { echo "::error::could not push market data"; exit 1; }
           fi
 
   # A push made with GITHUB_TOKEN does not trigger other workflows, so the
