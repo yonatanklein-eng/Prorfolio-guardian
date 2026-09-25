@@ -1202,8 +1202,12 @@ async function loadMacro() {
     drawYieldChart(spreads, crossIdx);
     renderYieldTimeline(stepIdx);
   } catch(e) {
-    indicators.push({color:'red', weight:3, name:'עקום תשואות'});
-    document.getElementById('macroMarket').insertAdjacentHTML('beforeend', yieldCurveCardHTML(null, 'red', 'העקום התהפך לאחרונה וחזר לחיובי — שלב מסוכן היסטורית.', null));
+    // No data is not a verdict. This used to print "recently un-inverted —
+    // historically dangerous" in red, and count it at weight 3, whenever the
+    // series failed to load: a claim made from nothing. Say it is missing and
+    // leave it out of the score, like every other card.
+    document.getElementById('macroMarket').insertAdjacentHTML('beforeend',
+      macroCardUnavailable('עקום תשואות', 'הנתון לא נאסף בהרצה האחרונה.'));
   }
 
   // 4. VIX
