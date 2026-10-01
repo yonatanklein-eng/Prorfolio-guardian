@@ -925,6 +925,73 @@ function macroCardUnavailable(name, why) {
   </div>`;
 }
 
+// 'YYYY-MM' or 'YYYY-MM-DD' as a Hebrew month and year ("אוגוסט 2000"), and
+// a full date as the reader's usual day format.
+function monthYearHe(s) {
+  const [y, m] = s.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('he-IL', {month: 'long', year: 'numeric', timeZone: 'UTC'});
+}
+function dayHe(s) {
+  return new Date(s.slice(0, 10) + 'T00:00:00Z').toLocaleDateString('he-IL', {timeZone: 'UTC'});
+}
+// A reading carried over from an earlier run because this one failed.
+function staleNote(x) {
+  return x && x.stale && x.asOf ? ` <b>הנתון מ־${dayHe(x.asOf)}: האיסוף האחרון נכשל.</b>` : '';
+}
+
+// The collector places each reading in its own history, so the text can say
+// how unusual it is instead of a sentence written once and left to go stale
+// ("the second highest in history" stayed while the number moved).
+function capeDesc(cp) {
+  let t = 'יחס מחיר לרווח, מול ממוצע הרווחים של עשר השנים האחרונות אחרי אינפלציה. מעל 30 נחשב תמחור יתר.';
+  if (cp.avg != null) t += ` הממוצע ההיסטורי: ${cp.avg}.`;
+  const prior = cp.atOrAbove;
+  if (prior && prior.months === 0) {
+    t += ' זו הרמה הגבוהה ביותר שנמדדה אי פעם.';
+  } else if (prior) {
+    // The years it has been this high before, as spans: "בשנים 1999–2000 וב־2026".
+    const spans = [];
+    for (const y of prior.years) {
+      const last = spans.at(-1);
+      if (last && y === last[1] + 1) last[1] = y; else spans.push([y, y]);
+    }
+    if (spans.length <= 3) {
+      const parts = spans.map(([a, b]) => a === b ? `ב־${a}` : `בשנים ${a}–${b}`);
+      const when = parts.length > 1 ? parts.slice(0, -1).join(', ') + ' ו' + parts.at(-1) : parts[0];
+      t += ` מאז ${cp.firstYear} הוא היה גבוה כך או יותר רק ב־${prior.months} חודשים: ${when}.`;
+    } else if (cp.pctBelow != null) {
+      t += ` גבוה מ־${Math.floor(cp.pctBelow * 100)}% מהחודשים מאז ${cp.firstYear}.`;
+    }
+  }
+  if (cp.peak && !(prior && prior.months === 0)) t += ` השיא: ${cp.peak.value.toFixed(1)} ב${monthYearHe(cp.peak.date)}.`;
+  return t + staleNote(cp);
+}
+
+// Only the largest company is named, so a short list in Hebrew covers it.
+const HEB_COMPANY = { NVDA: 'אנבידיה', AAPL: 'אפל', MSFT: 'מיקרוסופט', GOOGL: 'אלפבית', AMZN: 'אמזון',
+                      META: 'מטא', AVGO: 'ברודקום', TSLA: 'טסלה' };
+function concentrationDesc(cc) {
+  let t = `כמה מהמדד תלוי במעט חברות: 10 החברות הגדולות הן ${Math.round(cc.top10)}% ממנו`;
+  if (cc.largest) {
+    const name = HEB_COMPANY[cc.largest.ticker];
+    t += `, והגדולה שבהן${name ? ', ' + name + ',' : ''} לבדה ${cc.largest.weight.toFixed(1)}%`;
+  }
+  t += '. בשיא של שנת 2000 הן היו כרבע מהמדד. ככל שהמספר גבוה, הפיזור קטן והסיכון גדל.';
+  if (cc.asOf) t += ` נכון ל־${dayHe(cc.asOf)}.`;
+  return t + staleNote(cc);
+}
+
+function savingsDesc(sv) {
+  let t = `כמה מההכנסה הפנויה משקי הבית בארה״ב חוסכים. הנתון ל${monthYearHe(sv.asOf)}`;
+  t += sv.yearAgo != null ? `; לפני שנה ${sv.yearAgo}%.` : '.';
+  if (sv.pctLower != null && sv.since) {
+    if (sv.pctLower === 0) t += ` זה השפל הנמוך ביותר מאז ${sv.since}.`;
+    else if (sv.pctLower < 0.01) t += ` בפחות מ־1% מהחודשים מאז ${sv.since} הוא היה נמוך כך או יותר.`;
+    else t += ` רק ב־${Math.round(sv.pctLower * 100)}% מהחודשים מאז ${sv.since} הוא היה נמוך כך או יותר.`;
+  }
+  return t + ' חיסכון נמוך = הצרכן נשען על אשראי, והכלכלה פגיעה יותר לזעזועים.';
+}
+
 function macroCardHTML(name, value, displayValue, normalText, pct, color, desc) {
   return `
   <div class="macro-card">
@@ -1100,14 +1167,20 @@ async function loadMacro() {
   await loadMarketData().catch(() => {});
   const indicators = [];
 
-  // 1. CAPE — static (monthly, from multpl.com — last known value)
-  const cape = 37.2;
-  const capeColor = colorFor(cape, 20, 30);
-  const capePct = Math.min(100, (cape/50)*100);
-  indicators.push({color:capeColor, weight:3, name:'CAPE שילר'});
-  document.getElementById('macroValuation').innerHTML +=
-    macroCardHTML('CAPE שילר', cape, cape.toFixed(1), '15–20', capePct, capeColor,
-      'יחס מחיר/רווח מתוקנן מחזורית. מעל 30 מסמן תמחור יתר היסטורי. כרגע ברמה השנייה הגבוהה בהיסטוריה.');
+  // 1. CAPE — Shiller's series via the collector (multpl.com). This was a
+  // constant, 37.2, which had fallen four points behind the real figure.
+  const cp = marketData && marketData.macro && marketData.macro.cape;
+  if (cp && cp.value != null) {
+    const cape = cp.value;
+    const capeColor = colorFor(cape, 20, 30);
+    const capePct = Math.min(100, (cape/50)*100);
+    indicators.push({color:capeColor, weight:3, name:'CAPE שילר'});
+    document.getElementById('macroValuation').innerHTML +=
+      macroCardHTML('CAPE שילר', cape, cape.toFixed(1), '15–20', capePct, capeColor, capeDesc(cp));
+  } else {
+    document.getElementById('macroValuation').innerHTML +=
+      macroCardUnavailable('CAPE שילר', (cp && cp.error) ? ('לא נאסף: ' + cp.error) : 'הנתון לא נאסף.');
+  }
 
   // 2. Buffett Indicator — corporate equities over GDP, computed server-side.
   // The old version divided the Wilshire 5000 INDEX LEVEL by a GDP figure
@@ -1249,16 +1322,21 @@ async function loadMacro() {
 
   // 6. DXY
   try {
-    const dxyData = macroSeries('dxy');
-    const dxyResult = dxyData?.chart?.result?.[0];
-    const dxyCloses = dxyResult?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
-    const dxy = dxyCloses[dxyCloses.length-1];
+    // Computed by the collector from the ECB's six rates with ICE's formula.
+    // What used to arrive under this key was the Fed's broad dollar index
+    // (DTWEXBGS, ~119), on a different scale from the thresholds below, so it
+    // always read red. A snapshot from before the change counts as missing.
+    const m = marketData && marketData.macro && marketData.macro.dxy;
+    if (!m || m.value == null || m.source !== 'ecb-formula') throw new Error('no computed DXY');
+    const dxy = m.value;
     const dxyColor = dxy > 105 ? 'red' : dxy > 100 ? 'amber' : 'green';
     const dxyPct = Math.min(100,(dxy/120)*100);
     indicators.push({color:dxyColor, weight:1, name:'DXY'});
+    const rates = m.asOf ? ` (שערי ${new Date(m.asOf * 1000).toLocaleDateString('he-IL', {timeZone: 'UTC'})})` : '';
     document.getElementById('macroMarket').insertAdjacentHTML('beforeend',
       macroCardHTML('דולר — מדד DXY', dxy, dxy.toFixed(1), '95–102', dxyPct, dxyColor,
-        'דולר חזק מדי = לחץ על שווקים מתפתחים ועל רווחי חברות רב-לאומיות אמריקאיות.'));
+        'דולר חזק מדי = לחץ על שווקים מתפתחים ועל רווחי חברות רב-לאומיות אמריקאיות. '
+        + `מחושב משערי החליפין של הבנק המרכזי האירופי, בנוסחה הרשמית של המדד${rates}.`));
   } catch {
     document.getElementById('macroMarket').insertAdjacentHTML('beforeend',
       macroCardUnavailable('DXY', 'הנתון לא נאסף בהרצה האחרונה.'));
@@ -1338,19 +1416,35 @@ async function loadMacro() {
     }
   } catch(e) { /* skip if fails */ }
 
-  // 9. Concentration risk — static
-  const concColor = 'red';
-  indicators.push({color:concColor, weight:2, name:'ריכוז שוק'});
-  document.getElementById('macroEcon').innerHTML +=
-    macroCardHTML('ריכוז שוק — TOP 7', 30, '~30%', '15–20%', 80, concColor,
-      'כמה מה-S&P 500 תלוי במעט חברות. כיום 7 חברות הטכנולוגיה הגדולות (אפל, מיקרוסופט, נבידיה ועוד) = כ-30% מכל המדד. אם אחת מהן נופלת — כל המדד נגרר מטה. ככל שהמספר גבוה, הפיזור קטן והסיכון גדל.');
+  // 9. Concentration — the ten largest companies' share of the index, from
+  // SPY's daily holdings via the collector. This was a constant "~30%".
+  const cc = marketData && marketData.macro && marketData.macro.concentration;
+  if (cc && cc.top10 != null) {
+    const v = cc.top10;
+    const concColor = colorFor(v, 23, 27);
+    indicators.push({color:concColor, weight:2, name:'ריכוז שוק'});
+    document.getElementById('macroEcon').innerHTML +=
+      macroCardHTML('ריכוז שוק — 10 הגדולות', v, v.toFixed(1) + '%', '18–23%', Math.min(100, (v/50)*100), concColor,
+        concentrationDesc(cc));
+  } else {
+    document.getElementById('macroEcon').innerHTML +=
+      macroCardUnavailable('ריכוז שוק', (cc && cc.error) ? ('לא נאסף: ' + cc.error) : 'הנתון לא נאסף.');
+  }
 
-  // 10. Consumer savings rate — static monthly
-  const savColor = 'amber';
-  indicators.push({color:savColor, weight:2, name:'חיסכון'});
-  document.getElementById('macroEcon').innerHTML +=
-    macroCardHTML('שיעור חיסכון צרכני', 3.5, '3.5%', '5%–8%', 35, savColor,
-      'שיעור חיסכון נמוך היסטורית. הצרכן חי על אשראי — כלכלה פגיעה לזעזועים.');
+  // 10. Personal saving rate — FRED's PSAVERT via the collector. This was a
+  // constant 3.5%. Low is the risk here, so the colours run the other way.
+  const sv = marketData && marketData.macro && marketData.macro.savings;
+  if (sv && sv.value != null) {
+    const v = sv.value;
+    const savColor = v < 3.5 ? 'red' : v < 5 ? 'amber' : 'green';
+    indicators.push({color:savColor, weight:2, name:'חיסכון'});
+    document.getElementById('macroEcon').innerHTML +=
+      macroCardHTML('שיעור חיסכון צרכני', v, v.toFixed(1) + '%', '5%–8%', Math.min(100, v * 10), savColor,
+        savingsDesc(sv));
+  } else {
+    document.getElementById('macroEcon').innerHTML +=
+      macroCardUnavailable('שיעור חיסכון צרכני', (sv && sv.error) ? ('לא נאסף: ' + sv.error) : 'הנתון לא נאסף.');
+  }
 
   updateRiskMeter(indicators);
   tsNow('ts1');
