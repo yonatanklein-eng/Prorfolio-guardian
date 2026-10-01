@@ -233,6 +233,7 @@ canvas{width:100%!important;border-radius:8px;}
 
   <div class="header">
     <div><div class="header-title">שומר התיק</div><div class="header-sub">S&P 500 · SMA 200</div></div>
+    <button class="refresh-btn" onclick="refreshButton(this)" aria-label="רענון">↻</button>
 
   </div>
 
@@ -309,6 +310,7 @@ canvas{width:100%!important;border-radius:8px;}
 
   <div class="header">
     <div><div class="header-title">מד סיכון</div><div class="header-sub">תמונת מצב כוללת</div></div>
+    <button class="refresh-btn" onclick="refreshButton(this)" aria-label="רענון">↻</button>
 
   </div>
 
@@ -341,6 +343,7 @@ canvas{width:100%!important;border-radius:8px;}
 
   <div class="header">
     <div><div class="header-title">מחירים</div><div class="header-sub" id="pricesSub">נכסים · מטבעות · אג"ח</div></div>
+    <button class="refresh-btn" onclick="refreshButton(this)" aria-label="רענון">↻</button>
 
   </div>
 
@@ -377,6 +380,7 @@ canvas{width:100%!important;border-radius:8px;}
 
   <div class="header">
     <div><div class="header-title">רוחב שוק</div><div class="header-sub" id="breadthSubtitle">כל מניות ה-S&P 500</div></div>
+    <button class="refresh-btn" onclick="refreshButton(this)" aria-label="רענון">↻</button>
   </div>
 
   <!-- big breadth gauge -->
@@ -427,13 +431,23 @@ canvas{width:100%!important;border-radius:8px;}
 // ═══════════════════════
 let marketData = null, marketPromise = null;
 
-function loadMarketData() {
-  if (marketData) return Promise.resolve(marketData);
+// The collector writes a new snapshot three times a day. This used to read it
+// once and keep it for the life of the tab — and Safari keeps a tab alive for
+// days — so the official closes, the risk cards and breadth stayed as they
+// were when the page was opened until it was closed and opened again. Read it
+// again once it is a few minutes old, or at once when asked to (force).
+let marketFetchedAt = 0;
+function loadMarketData(force = false) {
+  if (marketData && !force && Date.now() - marketFetchedAt < 5 * 60 * 1000) return Promise.resolve(marketData);
   if (marketPromise) return marketPromise;
   marketPromise = fetch('data/market.json?_=' + Date.now(), { cache: 'no-store' })
     .then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
-    .then(d => { marketData = d; return d; })
-    .catch(err => { marketPromise = null; throw new Error('אין נתוני יום: ' + err.message); });
+    .then(d => { marketData = d; marketFetchedAt = Date.now(); marketPromise = null; return d; })
+    .catch(err => {
+      marketPromise = null;
+      if (marketData) return marketData;    // a failed re-read keeps what was shown
+      throw new Error('אין נתוני יום: ' + err.message);
+    });
   return marketPromise;
 }
 
@@ -1743,20 +1757,31 @@ async function loadPrices() {
 // ═══════════════════════
 loadSMA();
 
-// Auto-refresh every minute — only the live pages (SMA + prices).
-// The risk meter (page 1) is NOT auto-refreshed; it loads only when opened,
-// since its full 500-stock breadth scan takes 2-3 minutes.
-setInterval(() => {
-  if (currentPage === 0) loadSMA();
-  else if (currentPage === 2) { pricesLoaded = false; loadPrices(); }
-}, 60 * 1000);
+// One refresh for every trigger. The live pages (main, prices) redraw each
+// time; the risk and breadth pages only when a new snapshot has arrived or on
+// the button, since nothing on them moves between collections.
+async function refreshPage(force = false) {
+  const before = marketData && marketData.generated;
+  await loadMarketData(force).catch(() => {});
+  const changed = !!marketData && marketData.generated !== before;
+  if (changed) { macroLoaded = false; fullBreadthLoaded = false; }
+  if (currentPage === 0) await loadSMA();
+  else if (currentPage === 1 && (changed || force)) await loadMacro();
+  else if (currentPage === 2) { pricesLoaded = false; await loadPrices(); }
+  else if (currentPage === 3 && (changed || force)) await loadFullBreadth();
+}
 
-// Refresh when app regains focus (e.g. switching back to Safari tab)
+// The ↻ button in each page's header.
+async function refreshButton(btn) {
+  if (btn.classList.contains('spinning')) return;
+  btn.classList.add('spinning');
+  try { await refreshPage(true); } finally { btn.classList.remove('spinning'); }
+}
+
+// Every minute while the page is open, and at once on coming back to it.
+setInterval(() => refreshPage(false), 60 * 1000);
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') {
-    if (currentPage === 0) loadSMA();
-    else if (currentPage === 2) { pricesLoaded = false; loadPrices(); }
-  }
+  if (document.visibilityState === 'visible') refreshPage(false);
 });
 </script>
 </body>
