@@ -395,18 +395,20 @@ canvas{width:100%!important;border-radius:8px;}
   </button>
 
   <!-- breakdown -->
+  <!-- How many were checked comes first: below it, "above" is read as a
+       share of that, not as the size of the count. -->
   <div class="group" id="fullBreadthBreakdown" style="display:none;">
     <div class="group-row">
-      <div><div class="row-label">מעל קו 200</div><div class="row-value green" id="fbAbove">—</div></div>
+      <div><div class="row-label">מניות שנבדקו</div><div class="row-value blue" id="fbTotal">—</div></div>
+      <div><span class="pill blue" id="fbUniverse">מתוך 500</span></div>
+    </div>
+    <div class="group-row">
+      <div><div class="row-label">מהן מעל הקו שלהן</div><div class="row-value green" id="fbAbove">—</div></div>
       <div><span class="pill green" id="fbAbovePct">—</span></div>
     </div>
     <div class="group-row">
-      <div><div class="row-label">מתחת קו 200</div><div class="row-value red" id="fbBelow">—</div></div>
+      <div><div class="row-label">מהן מתחת לקו שלהן</div><div class="row-value red" id="fbBelow">—</div></div>
       <div><span class="pill red" id="fbBelowPct">—</span></div>
-    </div>
-    <div class="group-row">
-      <div><div class="row-label">נבדקו בהצלחה</div><div class="row-value blue" id="fbTotal">—</div></div>
-      <div><span class="pill blue" id="fbUniverse">מתוך 500</span></div>
     </div>
   </div>
 
@@ -461,13 +463,22 @@ let fullBreadthLoaded = false;
 
 // One place decides how a breadth reading describes itself, so the risk card
 // and the breadth page can never word the same number differently.
-function breadthBasis(b) {
-  const m = (b && b.method) || '';
-  if (m.startsWith('index'))  return 'מבוסס על מדד ‎^S5TH‎ — כל 500 המניות, נתון יומי.';
+// How many stocks were checked, and how they split. Said first, and in these
+// words, because "202 out of 501 above the 200-day line" was read as "only
+// about 200 companies were counted": the number that jumped out was the
+// smaller one, sitting next to "200".
+function breadthCount(b) {
+  if (!b || b.above == null || !b.counted) return '';
   // The index holds 503 tickers for 500 companies (a few have two share
   // classes), and the collector says how many it counted against. Older
   // snapshots do not, so fall back to the round number.
-  const of = `מתוך ${(b && b.universe) || 500} המניות שבמדד`;
+  return `נבדקו ${b.counted} מתוך ${b.universe || 500} המניות שבמדד: `
+    + `${b.above} מהן מעל קו ה־200 שלהן, ו־${b.counted - b.above} מתחתיו.`;
+}
+
+function breadthBasis(b) {
+  const m = (b && b.method) || '';
+  if (m.startsWith('index'))  return 'מבוסס על מדד ‎^S5TH‎ — כל 500 המניות, נתון יומי.';
   // Membership is read fresh each run; if that failed, the count was made
   // against a stored copy, and the reader should know which.
   let list = '';
@@ -475,24 +486,25 @@ function breadthBasis(b) {
     const d = b.universeAsOf ? new Date(b.universeAsOf + 'T00:00:00Z').toLocaleDateString('he-IL') : '';
     list = ` רשימת המניות העדכנית לא נטענה, ולכן נספר לפי רשימה שמורה${d ? ' מתאריך ' + d : ''}.`;
   }
-  if (m.startsWith('batch'))  return `נמדדו ${b.counted} ${of}, כולן באותה בדיקה.` + list;
+  // The counts themselves come from breadthCount; this says how they were made.
+  if (m.startsWith('batch'))  return ('כולן נבדקו באותה בדיקה.' + list).trim();
   if (m.startsWith('combined')) {
     // Prices are today's; the averages they are compared against were
     // refreshed on rotation. Say so — a 200-day average barely moves, but the
     // page should not imply both halves are equally fresh.
-    let t = `נמדדו ${b.counted} ${of}: מחיר של היום מול הממוצע שלהן`;
+    let t = 'כל מניה נבדקה במחיר של היום מול הממוצע שלה';
     if (b.oldestAverage) {
       const days = Math.round((Date.now() - Date.parse(b.oldestAverage + 'T00:00:00Z')) / 86400000);
       if (days >= 1) t += `; הוותיק שבממוצעים רוענן לפני ${days === 1 ? 'יום' : days + ' ימים'}`;
     }
     return t + '.' + list;
   }
-  if (m.startsWith('census')) return `נספרו ${b.counted} ${of}.` + list;
+  if (m.startsWith('census')) return list.trim();
   if (m.startsWith('sample')) return `מדגם של ${b.counted} מניות בלבד — לא ספירה מלאה.`;
   if (m.startsWith('rotating')) {
     // Rotation means the reading is a mosaic of checks made on different days,
-    // so give both the coverage and how far back the oldest one goes.
-    let t = `${b.counted} ${of}, מתעדכנות ברוטציה`;
+    // so say how far back the oldest one goes.
+    let t = 'הבדיקות מתעדכנות ברוטציה';
     if (b.oldestReading) {
       const days = Math.round((Date.now() - Date.parse(b.oldestReading + 'T00:00:00Z')) / 86400000);
       if (days >= 1) t += `; הוותיקה ביותר נבדקה לפני ${days === 1 ? 'יום' : days + ' ימים'}`;
@@ -542,7 +554,8 @@ function renderBreadth(b) {
   // claims, and the page must not present one as the other.
   const basis = breadthBasis(b);
   descEl.textContent =
-    `${v}% מהמניות מעל קו ה-200 שלהן. מתחת ל-50% = חולשה פנימית, גם אם המדד עולה. ${basis} ${freshnessText()}`.trim();
+    `${v}% מהמניות מעל קו ה-200 שלהן. ${breadthCount(b)} מתחת ל-50% = חולשה פנימית, גם אם המדד עולה. ${basis} ${freshnessText()}`
+      .replace(/\s+/g, ' ').trim();
 
   const breakdown = document.getElementById('fullBreadthBreakdown');
   if (b.above != null && b.counted) {
@@ -1397,16 +1410,18 @@ async function loadMacro() {
       const bd = document.getElementById('breadthDesc');
       if (bd) {
         const basis = breadthBasis(b);
-        const head = above != null
-          ? `${above} מתוך ${counted} מניות ה-S&P מעל קו ה-200 שלהן.`
-          : `${breadth}% ממניות ה-S&P מעל קו ה-200 שלהן.`;
-        bd.textContent = `${head} מתחת ל-50% = השוק עולה על גב מעט מניות, סימן חולשה פנימית. ${basis} ${freshnessText()}`.trim();
+        const head = breadthCount(b) || `${breadth}% ממניות המדד מעל קו ה-200 שלהן.`;
+        bd.textContent = `${head} מתחת ל-50% = השוק עולה על גב מעט מניות, סימן חולשה פנימית. ${basis} ${freshnessText()}`
+          .replace(/\s+/g, ' ').trim();
       }
     } else {
       // The card opens with a "loading" badge; leaving it there makes an
-      // unavailable reading look like one still on its way.
+      // unavailable reading look like one still on its way. While the count is
+      // still being built the collector says how far it has got; say that
+      // rather than claim the source is blocked.
       const bd = document.getElementById('breadthDesc');
-      if (bd) bd.textContent = 'לא ניתן למדוד רוחב שוק — המקור חוסם את שרתי האיסוף.';
+      if (bd) bd.textContent = (b.method === 'building' && b.error) ? b.error
+        : 'לא ניתן למדוד רוחב שוק — המקור חוסם את שרתי האיסוף.';
       const bb = document.getElementById('breadthBadge');
       if (bb) { bb.textContent = 'לא זמין'; bb.className = 'macro-badge'; }
       const bv = document.getElementById('breadthValue');
