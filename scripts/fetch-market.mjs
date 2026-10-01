@@ -14,6 +14,8 @@
 import { writeFile, mkdir, readFile } from 'node:fs/promises';
 import { getHistory, yahooQuoteBatch } from '../worker.js';
 import { SP500 as SP500_FALLBACK, SP500_AS_OF } from './sp500.mjs';
+import { parseMultplTable, capeContext, DXY_WEIGHTS, dxyFromRates } from './indicators.mjs';
+import { fetchConcentration } from './holdings.mjs';
 
 const OUT = 'data/market.json';
 
@@ -436,6 +438,120 @@ async function collectBuffett() {
   }
 }
 
+// ── Shiller CAPE ─────────────────────────────────────────────────────
+// The page printed 37.2 from a constant for months while the real figure went
+// past 41. multpl.com publishes Shiller's series, current month first and
+// updated with the index level, back to 1871 — reachable from the runner.
+// Parsing and the context the page shows are in indicators.mjs.
+// A source that fails one run should not blank a monthly statistic. Carry the
+// last good reading forward while it is recent enough to still be true, and
+// mark it so the page can say how old it is.
+function carryForward(prevEntry, maxAgeDays, why) {
+  if (!prevEntry || prevEntry.value == null && prevEntry.top10 == null) return null;
+  const when = Date.parse(prevEntry.fetched || prevEntry.asOf || '');
+  if (!isFinite(when) || (Date.now() - when) / 86400000 > maxAgeDays) return null;
+  return { ...prevEntry, stale: true, error: why };
+}
+
+async function collectCape(prev) {
+  try {
+    const res = await fetch('https://www.multpl.com/shiller-pe/table/by-month', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36' },
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) throw new Error('multpl ' + res.status);
+    const rows = parseMultplTable(await res.text());
+    if (rows.length < 1000) throw new Error(`multpl: only ${rows.length} rows`);
+    if (!(rows[0].v > 5 && rows[0].v < 80)) throw new Error(`multpl: implausible ${rows[0].v}`);
+    const out = { ...capeContext(rows), source: 'multpl', fetched: new Date().toISOString() };
+    console.log(`cape: ${out.value} (${out.asOf}); highest since ${out.highestSince || 'ever'}; avg ${out.avg}`);
+    return out;
+  } catch (e) {
+    console.log(`cape: FAILED — ${e.message}`);
+    const kept = carryForward(prev && prev.macro && prev.macro.cape, 45, e.message);
+    if (kept) console.log(`cape: keeping ${kept.value} from ${kept.asOf}`);
+    return kept || { value: null, error: e.message };
+  }
+}
+
+// ── Personal saving rate ─────────────────────────────────────────────
+// Was a constant 3.5%. FRED's PSAVERT is the BEA series itself, monthly, about
+// two months behind. The whole history (from 1959) comes in one request, so
+// the page can say how unusual the latest month is, not just what it is.
+async function collectSavings() {
+  try {
+    const key = process.env.FRED_API_KEY;
+    if (!key) throw new Error('no api key');
+    const res = await fetch('https://api.stlouisfed.org/fred/series/observations'
+      + `?series_id=PSAVERT&api_key=${key}&file_type=json`);
+    if (!res.ok) throw new Error(`fred ${res.status} (PSAVERT)`);
+    const obs = ((await res.json()).observations || [])
+      .map(o => ({ date: o.date, v: parseFloat(o.value) })).filter(o => isFinite(o.v));
+    if (obs.length < 300) throw new Error(`PSAVERT: only ${obs.length} months`);
+    const last = obs.at(-1), history = obs.slice(0, -1);
+    const yearAgo = obs.length > 12 ? obs.at(-13).v : null;
+    const pctLower = history.filter(o => o.v <= last.v).length / history.length;
+    console.log(`savings: ${last.v}% (${last.date}); a year earlier ${yearAgo}%`);
+    return { value: last.v, asOf: last.date, yearAgo, pctLower: +pctLower.toFixed(3),
+             since: obs[0].date.slice(0, 4), source: 'fred', series: 'PSAVERT' };
+  } catch (e) {
+    console.log(`savings: FAILED — ${e.message}`);
+    return { value: null, error: e.message };
+  }
+}
+
+// ── The dollar ───────────────────────────────────────────────────────
+// The card is about DXY: its ranges (95–102 normal, over 105 a strain) are on
+// DXY's scale. But the value it was given was FRED's broad trade-weighted
+// index, DTWEXBGS — a different index, 2006 = 100, which sat near 119 while DXY
+// was near 101. Every reading came out red.
+//
+// DXY itself is a fixed formula over six exchange rates (ICE's published
+// weights), and the ECB publishes all six daily — keyless, via the same
+// Frankfurter API the FX rows use. So compute it. Taken at the ECB's afternoon
+// fixing rather than New York's close, it can differ from the quoted close by
+// a few tenths; the page says how it was computed.
+async function collectDxy() {
+  try {
+    const from = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+    const res = await fetch(`https://api.frankfurter.dev/v1/${from}..?base=USD&symbols=${Object.keys(DXY_WEIGHTS).join(',')}`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    const days = Object.keys(d.rates || {}).sort()
+      .filter(day => Object.keys(DXY_WEIGHTS).every(c => d.rates[day][c] > 0));
+    if (!days.length) throw new Error('no complete set of rates');
+    const last = dxyFromRates(d.rates[days.at(-1)]);
+    const prev = days.length > 1 ? dxyFromRates(d.rates[days.at(-2)]) : null;
+    if (!(last > 60 && last < 160)) throw new Error(`implausible ${last}`);
+    console.log(`dxy: ${last.toFixed(2)} (ecb rates ${days.at(-1)})`);
+    return {
+      value: +last.toFixed(2),
+      change: prev ? ((last - prev) / prev) * 100 : null,
+      asOf: Date.parse(days.at(-1) + 'T00:00:00Z') / 1000,
+      source: 'ecb-formula',
+    };
+  } catch (e) {
+    console.log(`dxy: FAILED — ${e.message}`);
+    return { value: null, error: e.message };
+  }
+}
+
+// ── Concentration ────────────────────────────────────────────────────
+// Was a constant "~30%". Now the top ten companies' share of the index from
+// SPY's daily holdings (scripts/holdings.mjs).
+async function collectConcentration(prev) {
+  try {
+    const c = await fetchConcentration();
+    console.log(`concentration: top 10 = ${c.top10}% of ${c.holdings} holdings (as of ${c.asOf})`);
+    return { ...c, source: 'ssga:SPY', fetched: new Date().toISOString() };
+  } catch (e) {
+    console.log(`concentration: FAILED — ${e.message}`);
+    const kept = carryForward(prev && prev.macro && prev.macro.concentration, 10, e.message);
+    if (kept) console.log(`concentration: keeping ${kept.top10}% from ${kept.asOf}`);
+    return kept || { top10: null, error: e.message };
+  }
+}
+
 // What to ask FRED for when a symbol's ids all fail.
 const SEARCH_HINT = { w5000: 'Wilshire 5000 Total Market Index' };
 
@@ -443,7 +559,7 @@ const MACRO = [
   ['vix',    '^VIX',      '5d'],
   ['gold',   'GC=F',      '5d'],
   ['oil',    'CL=F',      '5d'],
-  ['dxy',    'DX-Y.NYB',  '5d'],
+  // dxy is computed from ECB rates (collectDxy), not looked up.
   // No US-listed ETF tracks this, so the page can only get it from here.
   ['ta125',  '^TA125.TA', '5d'],
 ];
@@ -605,15 +721,20 @@ const universe = await loadConstituents();
 // per-minute cap turns away.
 const quotes = await collectQuotes().catch(e => ({ error: e.message }));
 
-const [breadth, macro, yields, fx, buffett] = await Promise.all([
+const [breadth, macro, yields, fx, buffett, cape, savings, dxy, concentration] = await Promise.all([
   collectBreadth(prev, universe.symbols)
     .catch(e => ({ value: null, method: 'failed', error: e.message })),
   collectMacro(),
   collectYields(),
   collectFx().catch(e => ({ error: e.message })),
   collectBuffett(),
+  collectCape(prev),
+  collectSavings(),
+  collectDxy(),
+  collectConcentration(prev),
 ]);
 Object.assign(macro, fx);   // the page reads FX out of macro alongside the rest
+Object.assign(macro, { cape, savings, dxy, concentration });
 // What "the index" meant for this reading: how many names, and whether the
 // membership was current or the fallback copy.
 Object.assign(breadth, {

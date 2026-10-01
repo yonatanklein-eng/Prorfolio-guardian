@@ -155,5 +155,74 @@ const unknown = await worker.fetch(new Request('https://w.dev/quote?symbol=X', {
 check('unknown origin not echoed back', unknown.headers.get('access-control-allow-origin') !== 'https://evil.example',
       unknown.headers.get('access-control-allow-origin'));
 
+// ── The four macro readings that used to be constants ──
+const { parseMultplTable, capeContext, dxyFromRates } = await import('./scripts/indicators.mjs');
+const { readFirstSheet } = await import('./scripts/xlsx.mjs');
+const { concentrationFromRows } = await import('./scripts/holdings.mjs');
+const { deflateRawSync } = await import('node:zlib');
+
+console.log('\n[10] CAPE from multpl');
+const multplRow = (d, v) => `<tr><td class="left">${d}</td><td class="right">&#x2002;${v}\n</td></tr>`;
+const capeRows = parseMultplTable('<table>' + [
+  multplRow('Sep 24, 2026', '41.25'), multplRow('Sep 1, 2026', '41.90'), multplRow('Aug 1, 2026', '41.13'),
+  multplRow('Aug 1, 2000', '41.40'), multplRow('Dec 1, 1999', '44.19'), multplRow('Jan 1, 1990', '17.05'),
+].join('') + '</table>');
+check('the &#x2002; entity does not leak into the number', capeRows[0].v === 41.25, capeRows[0]);
+check('dates read as UTC days, newest first', capeRows[0].date === '2026-09-24' && capeRows.at(-1).date === '1990-01-01');
+const ctx = capeContext(capeRows);
+check('"highest since" skips the month in progress', ctx.highestSince === '2000-08', ctx.highestSince);
+check('peak and share below come from past months', ctx.peak.value === 44.19 && ctx.peak.date === '1999-12' && ctx.pctBelow === 0.5, ctx);
+check('a new high has no "since"', capeContext(parseMultplTable(multplRow('Sep 24, 2026', '50') + multplRow('Dec 1, 1999', '44.19'))).highestSince === null);
+
+console.log('\n[11] DXY from ECB rates');
+// ECB rates for 2026-09-25 as the runner received them
+const r925 = { CAD: 1.4143, CHF: 0.82829, EUR: 0.87696, GBP: 0.75458, JPY: 157.59, SEK: 9.9009 };
+check('ICE formula on real rates lands on the DXY scale', Math.abs(dxyFromRates(r925) - 100.984) < 0.01, dxyFromRates(r925));
+const eurUp = { ...r925, EUR: r925.EUR * 1.01 };   // a dollar that buys 1% more euros
+check('the euro carries its 57.6% weight', Math.abs(dxyFromRates(eurUp) / dxyFromRates(r925) - Math.pow(1.01, 0.576)) < 1e-12);
+
+console.log('\n[12] SPY holdings (.xlsx)');
+// A minimal zip: one stored part and one deflated, which is all the reader needs.
+function zip(files) {
+  const locals = [], centrals = [];
+  let offset = 0;
+  for (const [name, text, deflate] of files) {
+    const raw = Buffer.from(text), data = deflate ? deflateRawSync(raw) : raw, nm = Buffer.from(name);
+    const lh = Buffer.alloc(30); lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(deflate ? 8 : 0, 8);
+    lh.writeUInt32LE(data.length, 18); lh.writeUInt32LE(raw.length, 22); lh.writeUInt16LE(nm.length, 26);
+    const ch = Buffer.alloc(46); ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(deflate ? 8 : 0, 10);
+    ch.writeUInt32LE(data.length, 20); ch.writeUInt32LE(raw.length, 24); ch.writeUInt16LE(nm.length, 28); ch.writeUInt32LE(offset, 42);
+    locals.push(lh, nm, data); centrals.push(ch, nm);
+    offset += 30 + nm.length + data.length;
+  }
+  const cd = Buffer.concat(centrals), end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(files.length, 10); end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, cd, end]);
+}
+const strings = ['Holdings:', 'As of 29-Sep-2026', 'Ticker', 'Weight', 'AT&T INC'];
+const sst = '<sst>' + strings.map(s => `<si><t>${s.replace('&', '&amp;')}</t></si>`).join('')
+  + '<si><r><t>Rich </t></r><r><t>text</t></r></si></sst>';
+const holding = (i, t, w) => `<row r="${i}"><c r="A${i}" t="inlineStr"><is><t>${t}</t></is></c><c r="B${i}"><v>${w}</v></c></row>`;
+let sheetRows = '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>'
+  + '<row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2" t="s"><v>3</v></c><c r="C2" s="1"/><c r="D2" t="s"><v>5</v></c></row>';
+const big = [['NVDA', 8], ['AAPL', 7], ['MSFT', 6], ['GOOGL', 3], ['GOOG', 2.5], ['AMZN', 4], ['AVGO', 2.6],
+             ['META', 2.4], ['MU', 1.8], ['TSLA', 1.5], ['AMD', 1.4]];
+const restW = (100 - big.reduce((a, [, w]) => a + w, 0)) / 490;
+let rowNo = 3;
+for (const [t, w] of big) sheetRows += holding(rowNo++, t, w);
+for (let i = 0; i < 490; i++) sheetRows += holding(rowNo++, 'Q' + String.fromCharCode(65 + Math.floor(i / 26) % 26, 65 + i % 26), restW);
+sheetRows += holding(rowNo++, 'CASH_USD', 0.1);
+const book = zip([['xl/sharedStrings.xml', sst, false], ['xl/worksheets/sheet1.xml', `<worksheet><sheetData>${sheetRows}</sheetData></worksheet>`, true]]);
+const sheet = readFirstSheet(book);
+check('shared, inline and rich-text strings all read', sheet[0][1] === 'As of 29-Sep-2026' && sheet[2][0] === 'NVDA' && sheet[1][3] === 'Rich text', sheet.slice(0, 3));
+check('a self-closing cell keeps the columns aligned', sheet[1].length === 4 && sheet[1][2] === '');
+const conc = concentrationFromRows(sheet);
+check('Alphabet counted once across both share classes', conc.top.find(c => c.ticker === 'GOOGL').weight === 5.5 && !conc.top.some(c => c.ticker === 'GOOG'), conc.top);
+check('top ten summed after merging, cash ignored', conc.top10 === 40.2 && conc.holdings === 501, conc);
+check('the as-of date comes from the header', conc.asOf === '2026-09-29', conc.asOf);
+let cutShort = null;
+try { concentrationFromRows(sheet.slice(0, 40)); } catch (e) { cutShort = e.message; }
+check('a file cut short is refused, not summed', /stocks/.test(cutShort || ''), cutShort);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

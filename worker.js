@@ -163,7 +163,10 @@ const FRED_MAP = {
   '^IRX':      'DGS3MO',
   '^TYX':      'DGS30',
   'CL=F':      'DCOILWTICO',
-  'DX-Y.NYB':  'DTWEXBGS',
+  // No 'DX-Y.NYB': FRED does not carry DXY. DTWEXBGS, which stood in for it, is
+  // the Fed's broad dollar index on a different base (~119 when DXY was ~101),
+  // so every DXY threshold read it as red. The collector computes DXY from ECB
+  // rates instead (collectDxy in scripts/fetch-market.mjs).
   // Wilshire 5000, for the Buffett card. WILL5000PR answered 400 on the first
   // real run, so rather than guess again at which id is current, list the
   // candidates and let the run report which one answers.
