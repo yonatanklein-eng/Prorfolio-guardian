@@ -21,13 +21,16 @@ const tdJson = async url => {
 };
 const FH = s => `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(s)}&token=${process.env.FINNHUB_API_KEY}`;
 const num = v => (v == null || v === '' ? NaN : parseFloat(String(v).replace(/[$,%]/g, '')));
-const pct = (a, b) => (isFinite(a) && isFinite(b) && b ? ((a / b - 1) * 100) : NaN);
+const fin = x => typeof x === 'number' && Number.isFinite(x);
+const pct = (a, b) => (fin(a) && fin(b) && b ? ((a / b - 1) * 100) : NaN);
 const rows = [];
 function row(screen, item, shown, ref, refName, tol, note = '') {
+  shown = typeof shown === 'string' ? num(shown) : shown;
+  ref = typeof ref === 'string' ? num(ref) : ref;
   const d = pct(shown, ref);
-  const verdict = !isFinite(shown) ? 'NO VALUE' : !isFinite(ref) ? 'NO REF' : Math.abs(d) <= tol ? 'OK' : 'CHECK';
-  rows.push({ screen, item, shown: isFinite(shown) ? +shown.toFixed(4) : shown, ref: isFinite(ref) ? +ref.toFixed(4) : ref,
-              refName, diffPct: isFinite(d) ? +d.toFixed(3) : '', verdict, note });
+  const verdict = !fin(shown) ? 'NO VALUE' : !fin(ref) ? 'NO REF' : Math.abs(d) <= tol ? 'OK' : 'CHECK';
+  rows.push({ screen, item, shown: fin(shown) ? +shown.toFixed(4) : '-', ref: fin(ref) ? +ref.toFixed(4) : '-',
+              refName, diffPct: fin(d) ? +d.toFixed(3) : '', verdict, note });
 }
 async function safe(label, fn) { try { return await fn(); } catch (e) { console.log(`  [${label}] ${e.message}`); return null; } }
 
@@ -71,7 +74,6 @@ const sma = a => a.slice(-200).reduce((x, y) => x + y, 0) / 200;
 const shownSMA = sma(series);
 console.log(`\nmain: last official ${lastClose} (${lastDay}); shown ${shownSP.toFixed(2)}; SMA200 ${shownSMA.toFixed(2)}; points ${closes.length}`);
 row('main', 'S&P 500 level', shownSP, nq.SPX && nq.SPX.last, 'Nasdaq SPX', 0.15);
-row('main', 'S&P 500 last official close', lastClose, null, '-', 0);
 // The 200-day average, recomputed from an independent daily history
 const from = new Date(Date.now() - 420 * 86400000).toISOString().slice(0, 10);
 const spxHist = await safe('nasdaq SPX history', () => nqHist('SPX', 'index', from));
