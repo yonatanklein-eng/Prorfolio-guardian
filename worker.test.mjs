@@ -170,9 +170,10 @@ const capeRows = parseMultplTable('<table>' + [
 check('the &#x2002; entity does not leak into the number', capeRows[0].v === 41.25, capeRows[0]);
 check('dates read as UTC days, newest first', capeRows[0].date === '2026-09-24' && capeRows.at(-1).date === '1990-01-01');
 const ctx = capeContext(capeRows);
-check('"highest since" skips the month in progress', ctx.highestSince === '2000-08', ctx.highestSince);
+check('months as high counted by year, the month in progress left out',
+      ctx.atOrAbove.months === 2 && ctx.atOrAbove.years.join() === '1999,2000', ctx.atOrAbove);
 check('peak and share below come from past months', ctx.peak.value === 44.19 && ctx.peak.date === '1999-12' && ctx.pctBelow === 0.5, ctx);
-check('a new high has no "since"', capeContext(parseMultplTable(multplRow('Sep 24, 2026', '50') + multplRow('Dec 1, 1999', '44.19'))).highestSince === null);
+check('a new high has no precedent', capeContext(parseMultplTable(multplRow('Sep 24, 2026', '50') + multplRow('Dec 1, 1999', '44.19'))).atOrAbove.months === 0);
 
 console.log('\n[11] DXY from ECB rates');
 // ECB rates for 2026-09-25 as the runner received them

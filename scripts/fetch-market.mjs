@@ -464,7 +464,7 @@ async function collectCape(prev) {
     if (rows.length < 1000) throw new Error(`multpl: only ${rows.length} rows`);
     if (!(rows[0].v > 5 && rows[0].v < 80)) throw new Error(`multpl: implausible ${rows[0].v}`);
     const out = { ...capeContext(rows), source: 'multpl', fetched: new Date().toISOString() };
-    console.log(`cape: ${out.value} (${out.asOf}); highest since ${out.highestSince || 'ever'}; avg ${out.avg}`);
+    console.log(`cape: ${out.value} (${out.asOf}); as high in ${out.atOrAbove.months} past months (${out.atOrAbove.years.join(' ')}); avg ${out.avg}`);
     return out;
   } catch (e) {
     console.log(`cape: FAILED — ${e.message}`);

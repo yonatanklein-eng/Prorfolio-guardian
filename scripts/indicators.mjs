@@ -28,12 +28,19 @@ export function capeContext(rows) {
   const past = months.filter(r => r.date.slice(0, 7) !== cur.date.slice(0, 7));
   const avg = past.reduce((a, r) => a + r.v, 0) / past.length;
   const pctBelow = past.filter(r => r.v < cur.v).length / past.length;
-  const since = past.find(r => r.v >= cur.v);           // newest first, so the latest such month
+  // Every past month at least this high, by year. "Highest since <date>" was
+  // tried first and read wrong: at 41.0 it said "highest since August 2026",
+  // true only because August was higher still. Which years have been here
+  // before says what the reader wants to know — at 41, only 1999-2000.
+  const atOrAbove = past.filter(r => r.v >= cur.v);
   const peak = past.reduce((a, r) => (r.v > a.v ? r : a), past[0]);
   return {
     value: cur.v, asOf: cur.date,
     avg: +avg.toFixed(1), pctBelow: +pctBelow.toFixed(3),
-    highestSince: since ? since.date.slice(0, 7) : null,   // null: higher than any month on record
+    atOrAbove: {
+      months: atOrAbove.length,
+      years: [...new Set(atOrAbove.map(r => +r.date.slice(0, 4)))].sort((a, b) => a - b),
+    },
     peak: { value: peak.v, date: peak.date.slice(0, 7) },
     firstYear: past.at(-1).date.slice(0, 4),
   };
