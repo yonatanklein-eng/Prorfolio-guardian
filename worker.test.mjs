@@ -225,5 +225,27 @@ let cutShort = null;
 try { concentrationFromRows(sheet.slice(0, 40)); } catch (e) { cutShort = e.message; }
 check('a file cut short is refused, not summed', /stocks/.test(cutShort || ''), cutShort);
 
+console.log("\n[13] An ETF's ratio to its index, from closes of the same day");
+const { alignedRatio, weekdaysBetween, nyDate } = await import('./scripts/indicators.mjs');
+// The runner's real numbers: SPY quoted at the 30 Sep close, previous close 764.20
+const qt = 1790798400, spyPc = 764.2;
+const sp500 = [['2026-09-25', 7743.41], ['2026-09-28', 7683.69], ['2026-09-29', 7670.84], ['2026-09-30', 7651.54]]
+  .map(([date, v]) => ({ date, v }));
+check('the quote is dated by the exchange\'s calendar', nyDate(qt) === '2026-09-30', nyDate(qt));
+const rToday = alignedRatio(sp500, spyPc, qt);
+check('FRED has the quote\'s day: previous close matched to the day before it',
+      rToday && rToday.date === '2026-09-29' && Math.abs(rToday.ratio - 7670.84 / 764.2) < 1e-9, rToday);
+check('the ratio turns SPY\'s close into the index to within tracking (0.1%)',
+      Math.abs(762.63 * rToday.ratio / 7651.54 - 1) < 0.001, 762.63 * rToday.ratio);
+const rBehind = alignedRatio(sp500.slice(0, 3), spyPc, qt);
+check('FRED one day behind still lines up', rBehind && rBehind.date === '2026-09-29', rBehind);
+check('FRED two days behind is refused, not guessed', alignedRatio(sp500.slice(0, 2), spyPc, qt) === null);
+check('a weekend between is not a gap', weekdaysBetween('2026-09-25', '2026-09-28') === 0);
+// Tuesday after a Monday holiday: Friday is the last close, but it cannot be
+// told apart from FRED lagging a day, so no ratio is taken.
+const tue = Date.parse('2026-09-01T20:00:00Z') / 1000;
+check('a weekday between (holiday or lag) is refused',
+      alignedRatio([{ date: '2026-08-28', v: 7000 }], 700, tue) === null);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

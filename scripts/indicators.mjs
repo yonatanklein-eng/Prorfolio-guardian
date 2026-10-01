@@ -52,3 +52,50 @@ export function capeContext(rows) {
 export const DXY_WEIGHTS = { EUR: 0.576, JPY: 0.136, GBP: 0.119, CAD: 0.091, SEK: 0.042, CHF: 0.036 };
 export const dxyFromRates = r =>
   50.14348112 * Object.entries(DXY_WEIGHTS).reduce((p, [c, w]) => p * Math.pow(r[c], w), 1);
+
+// ── An ETF's fixed ratio to the level it tracks ─────────────────────
+// SPY holds the S&P 500 at a nearly constant ratio (about a tenth), moving
+// only on dividend days and by its fee, and the same goes for QQQ, DIA and,
+// more loosely, USO against WTI. An official close divided by the ETF's close
+// for the same day therefore turns a live ETF price into a live level.
+//
+// "The same day" is the whole difficulty. Finnhub's previous close belongs to
+// the trading day before the date of its quote; FRED's newest close can lag a
+// day. Only two cases prove a match:
+//   - FRED already has the quote's own day: the previous close is then FRED's
+//     entry just before it, since FRED lists every trading day;
+//   - FRED's newest day is the last weekday before the quote's day.
+// Anything else — a holiday between, or FRED behind — returns null, and the
+// caller keeps the last good ratio. A ratio a few days old is still right; one
+// from the wrong day is off by that day's whole move.
+
+// Calendar date in New York for a unix time — the exchange's trading date.
+export function nyDate(s) {
+  const p = {};
+  new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(new Date(s * 1000)).forEach(x => { p[x.type] = x.value; });
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+export function weekdaysBetween(a, b) {   // strictly between two YYYY-MM-DD dates
+  let n = 0;
+  const d = new Date(a + 'T12:00:00Z');
+  for (d.setUTCDate(d.getUTCDate() + 1); d.toISOString().slice(0, 10) < b; d.setUTCDate(d.getUTCDate() + 1)) {
+    const wd = d.getUTCDay();
+    if (wd !== 0 && wd !== 6) n++;
+  }
+  return n;
+}
+
+// obs: official closes [{date, v}], oldest first. quote: Finnhub's previous
+// close and the unix time of its quote.
+export function alignedRatio(obs, prevClose, quoteTime) {
+  if (!obs.length || !(prevClose > 0) || !quoteTime) return null;
+  const day = nyDate(quoteTime);
+  const last = obs.at(-1);
+  let match = null;
+  if (last.date === day) match = obs.at(-2) || null;
+  else if (last.date < day && weekdaysBetween(last.date, day) === 0) match = last;
+  if (!match || !(match.v > 0)) return null;
+  return { ratio: match.v / prevClose, date: match.date };
+}

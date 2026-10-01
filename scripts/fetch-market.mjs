@@ -14,7 +14,7 @@
 import { writeFile, mkdir, readFile } from 'node:fs/promises';
 import { getHistory, yahooQuoteBatch } from '../worker.js';
 import { SP500 as SP500_FALLBACK, SP500_AS_OF } from './sp500.mjs';
-import { parseMultplTable, capeContext, DXY_WEIGHTS, dxyFromRates } from './indicators.mjs';
+import { parseMultplTable, capeContext, DXY_WEIGHTS, dxyFromRates, alignedRatio } from './indicators.mjs';
 import { fetchConcentration } from './holdings.mjs';
 
 const OUT = 'data/market.json';
@@ -552,12 +552,85 @@ async function collectConcentration(prev) {
   }
 }
 
+// ── Real levels for the price page ───────────────────────────────────
+// Finnhub's free tier quotes ETFs, not indices, so the price page showed SPY's
+// 762 under "S&P 500" while the index stood at 7,651: a correct number that
+// reads as a wrong one. Each ETF's ratio to what it tracks is nearly fixed, so
+// the official close over the ETF's close for the same day lets the page turn
+// the live ETF price into a live level (alignedRatio, in indicators.mjs).
+const LEVELS = [
+  { key: 'sp500', etf: 'SPY', fred: 'SP500' },
+  { key: 'ndx',   etf: 'QQQ', fred: 'NASDAQ100' },
+  { key: 'djia',  etf: 'DIA', fred: 'DJIA' },
+  { key: 'wti',   etf: 'USO', fred: 'DCOILWTICO' },
+];
+
+async function fredRecent(seriesId, n) {
+  const key = process.env.FRED_API_KEY;
+  if (!key) throw new Error('no api key');
+  const res = await fetch('https://api.stlouisfed.org/fred/series/observations'
+    + `?series_id=${seriesId}&api_key=${key}&file_type=json&sort_order=desc&limit=${n}`);
+  if (!res.ok) throw new Error(`fred ${res.status} (${seriesId})`);
+  return ((await res.json()).observations || [])
+    .map(o => ({ date: o.date, v: parseFloat(o.value) })).filter(o => isFinite(o.v)).reverse();
+}
+
+async function collectLevels(prev, quotes) {
+  const out = {};
+  for (const { key, etf, fred } of LEVELS) {
+    const was = prev && prev.levels && prev.levels[key];
+    try {
+      const obs = await fredRecent(fred, 10);
+      if (obs.length < 2) throw new Error(`${fred}: too few observations`);
+      let ratio = was ? was.ratio : null, ratioDate = was ? was.ratioDate : null;
+      const q = quotes && quotes[etf];
+      const fresh = q && q.value != null ? alignedRatio(obs, q.prevClose, q.asOf) : null;
+      if (fresh) {
+        // The ratio moves a fraction of a percent on a dividend day. A jump of
+        // several means the two closes were not from the same day after all.
+        if (ratio && Math.abs(fresh.ratio / ratio - 1) > 0.03) {
+          console.log(`level ${key}: new ratio ${fresh.ratio.toFixed(4)} is far from ${ratio.toFixed(4)}; keeping the old one`);
+        } else { ratio = fresh.ratio; ratioDate = fresh.date; }
+      }
+      const last = obs.at(-1);
+      out[key] = { etf, ratio, ratioDate, close: last.v, closeDate: last.date,
+                   prevClose: obs.at(-2).v, source: 'fred:' + fred };
+      console.log(`level ${key}: close ${last.v} (${last.date}), ratio ${ratio ? ratio.toFixed(4) : 'none'} (${ratioDate || '-'})`);
+    } catch (e) {
+      console.log(`level ${key}: FAILED — ${e.message}`);
+      out[key] = was ? { ...was, stale: true, error: e.message } : { close: null, error: e.message };
+    }
+  }
+  return out;
+}
+
+// Gold spot from gold-api.com: keyless, and it answers the page's browser
+// directly too (CORS *), so the live row asks it itself. Here it backs the
+// risk card and the row's fallback. It gives no previous close, so the day's
+// move is GLD's, which is the same move to within the ETF's tracking.
+async function collectGold(quotes) {
+  try {
+    const res = await fetch('https://api.gold-api.com/price/XAU', { signal: AbortSignal.timeout(20000) });
+    if (!res.ok) throw new Error('gold-api ' + res.status);
+    const d = await res.json();
+    const price = parseFloat(d.price);
+    if (!(price > 100 && price < 100000)) throw new Error(`implausible ${d.price}`);
+    const g = quotes && quotes.GLD;
+    console.log(`gold: ${price.toFixed(2)} (gold-api.com)`);
+    return { value: price, change: g && g.change != null ? g.change : null,
+             asOf: Math.floor(Date.parse(d.updatedAt) / 1000) || null, source: 'gold-api.com' };
+  } catch (e) {
+    console.log(`gold: FAILED — ${e.message}`);
+    return { value: null, error: e.message };
+  }
+}
+
 // What to ask FRED for when a symbol's ids all fail.
 const SEARCH_HINT = { w5000: 'Wilshire 5000 Total Market Index' };
 
 const MACRO = [
   ['vix',    '^VIX',      '5d'],
-  ['gold',   'GC=F',      '5d'],
+  // gold comes from gold-api.com (collectGold): GC=F failed on every run.
   ['oil',    'CL=F',      '5d'],
   // dxy is computed from ECB rates (collectDxy), not looked up.
   // No US-listed ETF tracks this, so the page can only get it from here.
@@ -647,7 +720,8 @@ async function finnhubQuote(symbol, key) {
   if (!res.ok) throw new Error('finnhub ' + res.status);
   const d = await res.json();
   if (!(isFinite(d.c) && d.c > 0)) throw new Error('finnhub: no price');
-  return { value: d.c, change: isFinite(d.dp) ? d.dp : null, asOf: d.t || null };
+  return { value: d.c, change: isFinite(d.dp) ? d.dp : null, asOf: d.t || null,
+           prevClose: d.pc > 0 ? d.pc : null };
 }
 
 async function quoteFromHistory(symbol) {
@@ -691,7 +765,9 @@ async function collectYields() {
       const c = [], t = [];
       for (let i = 0; i < closes.length; i += step) { c.push(closes[i]); t.push(stamps[i]); }
       if (c.at(-1) !== closes.at(-1)) { c.push(closes.at(-1)); t.push(stamps.at(-1)); }
-      out[key] = { closes: c, stamps: t, latest: closes.at(-1), source };
+      out[key] = { closes: c, stamps: t, latest: closes.at(-1), source,
+                   previous: closes.length > 1 ? closes.at(-2) : null,
+                   latestDate: new Date(stamps.at(-1) * 1000).toISOString().slice(0, 10) };
       console.log(`yield ${key}: ${closes.at(-1)} (${c.length} pts, ${source})`);
     } catch (e) {
       out[key] = { closes: [], stamps: [], latest: null, error: e.message };
@@ -721,7 +797,7 @@ const universe = await loadConstituents();
 // per-minute cap turns away.
 const quotes = await collectQuotes().catch(e => ({ error: e.message }));
 
-const [breadth, macro, yields, fx, buffett, cape, savings, dxy, concentration] = await Promise.all([
+const [breadth, macro, yields, fx, buffett, cape, savings, dxy, concentration, levels, gold] = await Promise.all([
   collectBreadth(prev, universe.symbols)
     .catch(e => ({ value: null, method: 'failed', error: e.message })),
   collectMacro(),
@@ -732,9 +808,11 @@ const [breadth, macro, yields, fx, buffett, cape, savings, dxy, concentration] =
   collectSavings(),
   collectDxy(),
   collectConcentration(prev),
+  collectLevels(prev, quotes),
+  collectGold(quotes),
 ]);
 Object.assign(macro, fx);   // the page reads FX out of macro alongside the rest
-Object.assign(macro, { cape, savings, dxy, concentration });
+Object.assign(macro, { cape, savings, dxy, concentration, gold });
 // What "the index" meant for this reading: how many names, and whether the
 // membership was current or the fallback copy.
 Object.assign(breadth, {
@@ -763,6 +841,7 @@ const payload = {
   macro,
   yields,
   quotes,
+  levels,
 };
 
 await mkdir('data', { recursive: true });
