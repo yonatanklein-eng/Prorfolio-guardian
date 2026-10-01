@@ -640,7 +640,7 @@ async function fetchFinnhub(symbol) {
     if (!res.ok) return null;
     const d = await res.json();
     if (!d || !d.c || d.c === 0) return null;
-    return { price: d.c, change: d.pc ? ((d.c - d.pc) / d.pc) * 100 : (d.dp || 0) };
+    return { price: d.c, change: d.pc ? ((d.c - d.pc) / d.pc) * 100 : (d.dp || 0), t: d.t || null };
   } catch { return null; }
 }
 
@@ -789,15 +789,30 @@ function drawChart(labels, prices, sma200s, curPrice, curSMA, tries) {
   drawDot(lastPriceX, lastPriceY, priceColor, fmt(curPrice,0));
 }
 
-// The index itself is not on Finnhub's free tier, but SPY is, and it tracks
-// the S&P closely. Applying SPY's live percentage move to yesterday's close
-// gives a live index level without needing index data we cannot get.
-async function liveGSPC(prevClose) {
+// The trading date in New York for a unix time, as YYYY-MM-DD. Built from
+// parts so it does not depend on how a locale happens to print dates.
+function nyDay(s) {
+  const p = {};
+  new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(new Date(s * 1000)).forEach(x => { p[x.type] = x.value; });
+  return `${p.year}-${p.month}-${p.day}`;
+}
+// "30.9" for a YYYY-MM-DD date.
+function dayShort(d) { const [, m, dd] = d.split('-'); return `${+dd}.${+m}`; }
+
+// The index is not on Finnhub's free tier; SPY is. The collector works out
+// SPY's ratio to the index from closes of the same day (levels.sp500), which
+// turns a live SPY price into a live index level.
+//
+// This used to apply SPY's move to closes[n-2] and write the result over the
+// last close — right for a series whose last point was today, as the old
+// source's was. FRED's last point is the latest finished close, so it laid
+// today's move on the day before yesterday's close.
+async function liveGSPC() {
   const spy = await fetchFinnhub('SPY');
-  if (spy && spy.price != null && spy.change != null && prevClose) {
-    return prevClose * (1 + spy.change / 100);
-  }
-  return null;   // no live overlay; the chart still shows yesterday's close
+  const lv = marketData && marketData.levels && marketData.levels.sp500;
+  if (!spy || spy.price == null || !spy.t || !lv || !lv.ratio) return null;
+  return { level: spy.price * lv.ratio, change: spy.change, day: nyDay(spy.t) };
 }
 
 // Full daily series, held in memory so switching range costs no request.
@@ -847,14 +862,21 @@ async function loadSMA() {
     const closes = (snap.sp500 && snap.sp500.closes || []).slice();
     const stamps = (snap.sp500 && snap.sp500.stamps || []).slice();
     if (closes.length < 202) throw new Error('אין מספיק נתונים בקובץ היומי');
-    // live price overrides today's point so the chart + gap refresh each cycle
-    const live = await liveGSPC(closes[closes.length-2]);
-    if (live != null) closes[closes.length-1] = live;
+    // A live price is today's point, added after the last official close. Once
+    // the official close for that day is in the file, it stands as it is.
+    const live = await liveGSPC();
+    const lastDay = new Date(stamps[stamps.length-1] * 1000).toISOString().slice(0, 10);
+    let change;
+    if (live && live.day > lastDay) {
+      closes.push(live.level);
+      stamps.push(Date.parse(live.day + 'T00:00:00Z') / 1000);
+      change = live.change;
+    } else {
+      change = ((closes[closes.length-1] - closes[closes.length-2]) / closes[closes.length-2]) * 100;
+    }
     const price = closes[closes.length-1];
-    const prev  = closes[closes.length-2];
     const sma200 = calcSMA(closes, 200);
     const isBelow = price < sma200;
-    const change = ((price-prev)/prev)*100;
     const gapPct = ((price-sma200)/sma200)*100;
 
     if (isBelow) {
@@ -1054,7 +1076,7 @@ function updateRiskMeter(indicators) {
   const ambers = indicators.filter(i=>i.color==='amber').length;
   document.getElementById('riskDesc').innerHTML =
     `${reds} מדדים באדום, ${ambers} בכתום מתוך ${indicators.length} שנאספו. ` +
-    `<br><span style="font-size:12px;color:var(--muted)">החישוב משוקלל: CAPE ועקום התשואות מקבלים משקל גבוה משאר המדדים, כי הם מנבאים חזקים יותר לטווח ארוך. מדדים שלא נאספו לא נכללים בחישוב.</span>`;
+    `<br><span style="font-size:12px;color:var(--muted)">החישוב משוקלל: שילר, מדד באפט ועקום התשואות מקבלים משקל גבוה משאר המדדים, כי הם מנבאים חזקים יותר לטווח ארוך. מדדים שלא נאספו לא נכללים בחישוב.</span>`;
 }
 
 function yieldCurveCardHTML(spread, color, desc, daysSince) {
@@ -1302,6 +1324,9 @@ async function loadMacro() {
     const vResult = vData?.chart?.result?.[0];
     const vCloses = vResult?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
     const vix = vCloses[vCloses.length-1];
+    // Before the indicator is pushed: a missing reading used to be counted
+    // (as red, here) and only then fail to render.
+    if (!isFinite(vix)) throw new Error('no VIX');
     const vixColor = colorFor(vix, 18, 28);
     const vixPct = Math.min(100,(vix/50)*100);
     indicators.push({color:vixColor, weight:1, name:'VIX'});
@@ -1319,6 +1344,10 @@ async function loadMacro() {
     const gResult = gData?.chart?.result?.[0];
     const gCloses = gResult?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
     const gold = gCloses[gCloses.length-1];
+    // Gold had no source for weeks, and this card still pushed a green
+    // indicator before failing to render: a reading counted that was never
+    // taken. Check first.
+    if (!isFinite(gold)) throw new Error('no gold');
     const goldPrev = gCloses[gCloses.length-2];
     const goldChg = ((gold-goldPrev)/goldPrev)*100;
     // Gold rising sharply = risk signal
@@ -1361,6 +1390,7 @@ async function loadMacro() {
     const oilResult = oilData?.chart?.result?.[0];
     const oilCloses = oilResult?.indicators?.quote?.[0]?.close?.filter(c=>c!=null)||[];
     const oil = oilCloses[oilCloses.length-1];
+    if (!isFinite(oil)) throw new Error('no oil');   // as with gold: check before counting
     const oilColor = oil > 100 ? 'red' : oil > 80 ? 'amber' : 'green';
     const oilPct = Math.min(100,(oil/130)*100);
     indicators.push({color:oilColor, weight:1, name:'נפט'});
@@ -1368,7 +1398,8 @@ async function loadMacro() {
       macroCardHTML('נפט WTI ($/חבית)', oil, '$'+oil.toFixed(1), '$60–$80', oilPct, oilColor,
         'נפט יקר = אינפלציה חוזרת + לחץ על הפד לעצור הורדות ריבית.');
   } catch {
-    document.getElementById('macroMarket').insertAdjacentHTML('beforeend',
+    // Same section as the card it stands in for.
+    document.getElementById('macroEcon').insertAdjacentHTML('beforeend',
       macroCardUnavailable('נפט', 'הנתון לא נאסף בהרצה האחרונה.'));
   }
 
@@ -1482,25 +1513,79 @@ function priceRow(label, data, suffix='') {
   if (!data) return `<div class="group-row"><div class="row-label">${label}</div><div><span class="pill muted">—</span></div></div>`;
   const c = data.change>=0?'green':'red';
   const sign = data.change>=0?'+':'';
-  const stale = data.stale ? '<span class="stale-tag">לא חי</span>'
-              : data.tag ? `<span class="stale-tag">${data.tag}</span>` : '';
+  // A row says what it is when it is not a live price: the date of the close
+  // it shows, the source of a daily rate, or plainly "not live".
+  const tagText = data.tag || (data.stale ? 'לא חי' : '');
+  const stale = tagText ? `<span class="stale-tag">${tagText}</span>` : '';
+  // Yields are already percentages, and move in points rather than percent.
+  const unit = data.unit || '', changeUnit = data.changeUnit != null ? data.changeUnit : '%';
   return `
   <div class="group-row">
     <div>
       <div class="row-label">${label}${stale}</div>
-      <div class="row-value ${c}">${suffix}${fmt(data.price, data.price>100?0:2)}</div>
+      <div class="row-value ${c}">${suffix}${fmt(data.price, data.decimals ?? (data.price>100?0:2))}${unit}</div>
     </div>
-    <div><span class="pill ${c}">${sign}${fmt(data.change)}%</span></div>
+    <div><span class="pill ${c}">${sign}${fmt(data.change)}${changeUnit}</span></div>
   </div>`;
 }
 
 // Finnhub's free tier covers US stocks and ETFs — not indices, forex or
-// commodities. So every row quotes the US-listed ETF that tracks the thing we
-// care about. The absolute level differs from the underlying, but the daily
-// percentage move, which is what this page shows, tracks it closely.
-//
-// If Finnhub is unavailable, fall back to the daily snapshot and mark the row
-// as not live rather than showing a stale number as though it were current.
+// commodities. The rows used to show the ETF's own price under the index's
+// name: 762 for an S&P 500 at 7,651, 381 for gold at $4,185. Right numbers
+// that read as wrong ones. Now each index row is the live ETF price times the
+// ETF's ratio to its index, worked out by the collector from closes of the
+// same day; without a live quote, the official close, with its date.
+async function levelQuote(key, etf) {
+  const lv = marketData && marketData.levels && marketData.levels[key];
+  const live = await fetchFinnhub(etf);
+  if (live && live.price != null && lv && lv.ratio) {
+    // After the close, once the official figure for that day is in, use it.
+    if (live.t && lv.closeDate === nyDay(live.t)) return { price: lv.close, change: live.change };
+    return { price: live.price * lv.ratio, change: live.change };
+  }
+  if (lv && lv.close != null) {
+    return { price: lv.close, change: lv.prevClose ? (lv.close / lv.prevClose - 1) * 100 : 0,
+             stale: true, tag: 'סגירה ' + dayShort(lv.closeDate) };
+  }
+  return null;
+}
+
+// Gold spot from gold-api.com: keyless and open to browsers, so the real price
+// rather than GLD's. It gives no previous close; the day's move is GLD's, the
+// same move to within the ETF's tracking.
+async function goldQuote() {
+  const snap = marketData && marketData.macro && marketData.macro.gold;
+  try {
+    const res = await fetch('https://api.gold-api.com/price/XAU', { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const price = parseFloat((await res.json()).price);
+    if (!(price > 0)) throw new Error('no price');
+    const gld = await fetchFinnhub('GLD');
+    const change = gld && gld.change != null ? gld.change : (snap && snap.change) || 0;
+    return { price, change };
+  } catch {
+    return snap && snap.value != null ? { price: snap.value, change: snap.change || 0, stale: true } : null;
+  }
+}
+
+// Bonds as yields — the number the news quotes — rather than bond-ETF prices.
+// FRED's daily close, so the row carries its date. The day's change is in
+// percentage points.
+function yieldQuote(key) {
+  const y = marketData && marketData.yields && marketData.yields[key];
+  if (!y || y.latest == null) return null;
+  return { price: y.latest, change: y.previous != null ? +(y.latest - y.previous).toFixed(2) : 0,
+           unit: '%', changeUnit: '', stale: true, tag: y.latestDate ? 'סגירה ' + dayShort(y.latestDate) : null };
+}
+
+// DXY as the collector computes it from the ECB's rates (see the dollar card),
+// not UUP's price.
+function dxyQuote() {
+  const m = marketData && marketData.macro && marketData.macro.dxy;
+  if (!m || m.value == null || m.source !== 'ecb-formula') return null;
+  return { price: m.value, change: m.change || 0, tag: 'ECB', decimals: 2 };
+}
+
 // ── Frankfurter: European Central Bank reference rates ──────────────
 // Free, keyless, unmetered, and documented as callable straight from the
 // browser — so the FX rows no longer have to wait for the daily snapshot.
@@ -1546,11 +1631,9 @@ async function btcQuote() {
     if (p == null) throw new Error('no price');
     return { price: p, change: d.bitcoin.usd_24h_change || 0 };
   } catch {
-    // Falling back to the spot-bitcoin ETF changes what the number means:
-    // IBIT trades near $58 while bitcoin is near $63,000. Tag it so the row
-    // does not read as a bitcoin price.
-    const r = await etfQuote('IBIT');
-    return r ? { ...r, tag: 'IBIT' } : null;
+    // Not IBIT's price instead: $47 under "bitcoin" is the very confusion the
+    // index rows were fixed for, tag or no tag. Better an empty row.
+    return null;
   }
 }
 
@@ -1562,17 +1645,6 @@ function snapshotQuote(key) {
   return { price: m.value, change: m.change || 0, stale: true };
 }
 
-async function etfQuote(etf, snapshotKey) {
-  const r = await fetchFinnhub(etf);
-  if (r && r.price != null) return r;
-  // Prefer yesterday's close for the same ETF; fall back to the underlying
-  // only if the ETF was not collected.
-  const q = marketData && marketData.quotes && marketData.quotes[etf];
-  if (q && q.value != null) return { price: q.value, change: q.change || 0, stale: true };
-  const m = snapshotKey && marketData && marketData.macro && marketData.macro[snapshotKey];
-  if (m && m.value != null) return { price: m.value, change: m.change || 0, stale: true };
-  return null;
-}
 
 // render one group on its own — fast Finnhub groups show immediately and
 // don't wait for the slow Yahoo-only groups (indices / bonds)
@@ -1594,30 +1666,29 @@ async function loadPrices() {
     // front rather than per row.
     await loadMarketData().catch(() => {});
 
-    // Labels name the ETF because the level shown IS the ETF's price, not the
-    // underlying's. GLD is roughly a tenth of an ounce of gold — calling the
-    // row "זהב" alone would put a wrong number under a right label.
+    // Every row is the thing itself: the index level, gold and oil in dollars,
+    // bond yields. None of them is an ETF's own price any more.
     const groups = [
       fillPriceGroup('priceMarkets', [
-        {label:'S&P 500 (SPY)',  get:()=>etfQuote('SPY')},
-        {label:'Nasdaq (QQQ)',   get:()=>etfQuote('QQQ')},
-        {label:'Dow Jones (DIA)',get:()=>etfQuote('DIA')},
-        {label:'ת"א 125',        get:()=>snapshotQuote('ta125')},
+        {label:'S&P 500',         get:()=>levelQuote('sp500','SPY')},
+        {label:'נאסד"ק 100',      get:()=>levelQuote('ndx','QQQ')},
+        {label:'דאו ג\'ונס',      get:()=>levelQuote('djia','DIA')},
+        {label:'ת"א 125',         get:()=>snapshotQuote('ta125')},
       ]),
       fillPriceGroup('priceSafehaven', [
-        {label:'זהב (GLD)',      suffix:'$', get:()=>etfQuote('GLD','gold')},
-        {label:'נפט WTI (USO)',  suffix:'$', get:()=>etfQuote('USO','oil')},
-        {label:'ביטקוין',        suffix:'$', get:()=>btcQuote()},
+        {label:'זהב, לאונקיה',     suffix:'$', get:()=>goldQuote()},
+        {label:'נפט WTI, לחבית',  suffix:'$', get:()=>levelQuote('wti','USO')},
+        {label:'ביטקוין',         suffix:'$', get:()=>btcQuote()},
       ]),
       fillPriceGroup('priceBonds', [
-        {label:'אג"ח 20+ שנים (TLT)', get:()=>etfQuote('TLT')},
-        {label:'אג"ח 7–10 שנים (IEF)', get:()=>etfQuote('IEF')},
-        {label:'אג"ח קצר (BIL)',      get:()=>etfQuote('BIL')},
+        {label:'תשואת אג"ח 30 שנה',   get:()=>yieldQuote('tyx')},
+        {label:'תשואת אג"ח 10 שנים',  get:()=>yieldQuote('tnx')},
+        {label:'תשואת אג"ח 3 חודשים', get:()=>yieldQuote('irx')},
       ]),
       fillPriceGroup('priceFx', [
         {label:'דולר/שקל',        get:()=>fxQuote('ILS','usdils')},
         {label:'יורו/דולר',       get:()=>eurUsdQuote()},
-        {label:'מדד הדולר (UUP)', get:()=>etfQuote('UUP','dxy')},
+        {label:'מדד הדולר DXY',   get:()=>dxyQuote()},
       ]),
     ];
 
