@@ -247,5 +247,29 @@ const tue = Date.parse('2026-09-01T20:00:00Z') / 1000;
 check('a weekday between (holiday or lag) is refused',
       alignedRatio([{ date: '2026-08-28', v: 7000 }], 700, tue) === null);
 
+console.log('\n[14] Yield curve inversions, by monthly average');
+const { curveStats } = await import('./scripts/indicators.mjs');
+// Daily series for 2021-10 .. 2026-09: deeply inverted Nov 2022 to Nov 2024,
+// a month whose average dips below zero (Mar 2025), and months with brief daily
+// dips whose average stays positive (May and Aug 2025) — the shape of the real
+// history, where weekly sampling counted anywhere from 4 to 6 inversions.
+const tenY = [], threeM = [];
+for (let d = new Date('2021-10-01T00:00:00Z'); d < new Date('2026-10-01T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1)) {
+  if (d.getUTCDay() === 0 || d.getUTCDay() === 6) continue;
+  const date = d.toISOString().slice(0, 10), m = date.slice(0, 7), dom = d.getUTCDate();
+  let spread = 1.0;
+  if (m >= '2022-11' && m <= '2024-11') spread = date === '2023-05-31' ? -1.89 : -1.2;
+  else if (m === '2025-03') spread = dom <= 20 ? -0.19 : 0.1;        // average below zero
+  else if (m === '2025-05' || m === '2025-08') spread = dom === 12 ? -0.14 : 0.2;   // one-day dips
+  tenY.push({ date, v: +(4 + spread).toFixed(2) }); threeM.push({ date, v: 4 });
+}
+const cst = curveStats(tenY, threeM);
+check('one-day dips do not count; a month below zero on average does', cst.inversions === 2, cst);
+check('the deepest day is reported, not a sampled one', cst.trough === -1.89 && cst.troughDate === '2023-05-31', cst);
+check('back above zero: the first trading day after the last inverted month', cst.uninverted === '2025-04-01', cst.uninverted);
+check('the month in progress is not judged yet', curveStats(tenY.concat([{ date: '2026-10-01', v: 3 }]), threeM.concat([{ date: '2026-10-01', v: 4 }])).inversions === 2);
+check('the same history gives the same count however it is cut',
+      curveStats(tenY.filter((_, i) => i % 2), threeM.filter((_, i) => i % 2)).inversions === 2);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

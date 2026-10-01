@@ -1230,7 +1230,11 @@ async function loadMacro() {
     indicators.push({color: buffColor, weight: 3, name: 'מדד באפט'});
     // Both sides are quarterly, so name the quarter rather than let a
     // three-month-old reading look like today's.
-    const asOf = buf.asOf ? ` נתון לרבעון שמסתיים ב-${buf.asOf}.` : '';
+    // FRED dates a quarter by its first day: 2026-04-01 is April to June,
+    // not "the quarter ending 1 April", as this used to say.
+    const qNames = ['הראשון', 'השני', 'השלישי', 'הרביעי'];
+    const asOf = buf.asOf
+      ? ` נתון לרבעון ${qNames[Math.floor((+buf.asOf.slice(5, 7) - 1) / 3)]} של ${buf.asOf.slice(0, 4)}.` : '';
     document.getElementById('macroValuation').innerHTML +=
       macroCardHTML('מדד באפט', buffett, buffett + '%', '75–100%', buffPct, buffColor,
         'שווי שוק המניות האמריקאי כאחוז מהתוצר. מעל 150% = תמחור יתר. מעל 200% = קיצוני.' + asOf);
@@ -1253,7 +1257,7 @@ async function loadMacro() {
     const nn = Math.min(s10.length, s3.length);
     const spreads = [];
     for (let i=0;i<nn;i++) spreads.push({t:s10[s10.length-nn+i].t, v:s10[s10.length-nn+i].v - s3[s3.length-nn+i].v});
-    const cur = parseFloat(spreads[spreads.length-1].v.toFixed(2));
+    let cur = parseFloat(spreads[spreads.length-1].v.toFixed(2));
 
     // A spread a couple of basis points under zero is noise, not an inversion.
     // Counting it as one is what had this card report "two inversions" off
@@ -1269,8 +1273,8 @@ async function loadMacro() {
     if (lastInvIdx >= 0) {
       for (let i = lastInvIdx + 1; i < spreads.length; i++) { if (spreads[i].v >= 0) { crossIdx = i; break; } }
     }
-    const daysSince = crossIdx >= 0 ? Math.round((spreads[spreads.length-1].t - spreads[crossIdx].t)/86400) : null;
-    const everInverted = lastInvIdx >= 0;
+    let daysSince = crossIdx >= 0 ? Math.round((spreads[spreads.length-1].t - spreads[crossIdx].t)/86400) : null;
+    let everInverted = lastInvIdx >= 0;
 
     let inversionCount = 0, inEpisode = false;
     spreads.forEach(s => {
@@ -1278,8 +1282,27 @@ async function loadMacro() {
       if (s.v >= 0) inEpisode = false;
     });
     // Say the window the data actually covers, rather than a fixed "two years".
-    const spanYears = Math.max(1, Math.round((spreads[spreads.length-1].t - spreads[0].t) / (365.25*86400)));
-    const trough = Math.min(...spreads.map(s => s.v));
+    let spanYears = Math.max(1, Math.round((spreads[spreads.length-1].t - spreads[0].t) / (365.25*86400)));
+    let trough = Math.min(...spreads.map(s => s.v));
+
+    // The collector judges inversions on every day of data, by monthly
+    // average (curveStats). Counted here on the weekly sample, the same
+    // history gave 4 inversions one run and 6 the next, depending on which
+    // weekday was sampled. Use its figures when the snapshot has them.
+    const cs = snapY.curve;
+    if (cs && cs.asOf) {
+      cur = cs.current;
+      inversionCount = cs.inversions;
+      everInverted = cs.inversions > 0;
+      trough = cs.trough != null ? cs.trough : trough;
+      daysSince = cs.uninverted
+        ? Math.round((Date.parse(cs.asOf + 'T00:00:00Z') - Date.parse(cs.uninverted + 'T00:00:00Z')) / 86400000)
+        : null;
+      spanYears = Math.max(1, Math.round((Date.parse(cs.asOf) - Date.parse(cs.windowStart)) / (365.25 * 86400000)));
+      // Mark the chart where the curve came back above zero.
+      const at = cs.uninverted ? Date.parse(cs.uninverted + 'T00:00:00Z') / 1000 : null;
+      crossIdx = at == null ? -1 : spreads.findIndex(p => p.t >= at);
+    }
 
     let ycColor, ycDesc, stepIdx;
     if (cur < INV) {
@@ -1293,7 +1316,7 @@ async function loadMacro() {
       ycDesc=`הפרש צר מאוד (${cur}%) — העקום כמעט שטוח. סוף מחזור קלאסי, ערנות מוגברת.`;
     } else if (everInverted && daysSince!==null) {
       ycColor='amber'; stepIdx=3;
-      ycDesc=`ב-${spanYears} השנים האחרונות העקום התהפך ${inversionCount === 1 ? 'פעם אחת' : inversionCount + ' פעמים'} (שפל של ${trough.toFixed(2)}%), וחזר לחיובי לפני ${daysSince} ימים — מעבר לחלון ההיסטורי הרגיל (210 יום). <b>מה זה אומר:</b> או שהאיתות "פספס" הפעם, או שצפוי היפוך נוסף לפני המיתון (כפי שקרה ב-1998 ו-1967). לפי <u>המדד הזה בלבד</u> הסיכון המיידי ירד — אך זה לא מבטל את שאר מדדי הסיכון.`;
+      ycDesc=`ב-${spanYears} השנים האחרונות העקום התהפך ${inversionCount === 1 ? 'פעם אחת' : inversionCount + ' פעמים'}${cs && cs.asOf ? ' לפי הממוצע החודשי' : ''} (שפל של ${trough.toFixed(2)}%), וחזר לחיובי לפני ${daysSince} ימים — מעבר לחלון ההיסטורי הרגיל (210 יום). <b>מה זה אומר:</b> או שהאיתות "פספס" הפעם, או שצפוי היפוך נוסף לפני המיתון (כפי שקרה ב-1998 ו-1967). לפי <u>המדד הזה בלבד</u> הסיכון המיידי ירד — אך זה לא מבטל את שאר מדדי הסיכון.`;
     } else if (spanYears < 3) {
       // Not having seen an inversion in a short window is not having seen
       // there was none. The 2022-24 inversion was long and early enough that a
@@ -1592,6 +1615,8 @@ function dxyQuote() {
 // These are official daily reference rates, not tick data, so they are
 // tagged "ECB" rather than presented as live ticks.
 async function fxQuote(symbol, snapshotKey) {
+  // Two decimals hid a day's move: USD/ILS 3.0736 showed as 3.07.
+  const decimals = symbol === 'ILS' ? 3 : 4;
   try {
     const from = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
     const res = await fetch(
@@ -1605,9 +1630,10 @@ async function fxQuote(symbol, snapshotKey) {
     const last = d.rates[days[days.length - 1]][symbol];
     const prev = days.length > 1 ? d.rates[days[days.length - 2]][symbol] : null;
     if (last == null) throw new Error('no rate for ' + symbol);
-    return { price: last, change: prev ? ((last - prev) / prev) * 100 : 0, tag: 'ECB' };
+    return { price: last, change: prev ? ((last - prev) / prev) * 100 : 0, tag: 'ECB', decimals };
   } catch {
-    return snapshotQuote(snapshotKey);
+    const snap = snapshotQuote(snapshotKey);
+    return snap && { ...snap, decimals };
   }
 }
 
@@ -1616,7 +1642,7 @@ async function fxQuote(symbol, snapshotKey) {
 async function eurUsdQuote() {
   const r = await fxQuote('EUR', 'eurusd');
   if (!r || r.price == null || r.tag !== 'ECB') return r;
-  return { price: 1 / r.price, change: -r.change, tag: 'ECB' };
+  return { price: 1 / r.price, change: -r.change, tag: 'ECB', decimals: 4 };
 }
 
 // ── CoinGecko: keyless, browser-callable, real BTC rather than the ETF ──

@@ -14,7 +14,7 @@
 import { writeFile, mkdir, readFile } from 'node:fs/promises';
 import { getHistory, yahooQuoteBatch } from '../worker.js';
 import { SP500 as SP500_FALLBACK, SP500_AS_OF } from './sp500.mjs';
-import { parseMultplTable, capeContext, DXY_WEIGHTS, dxyFromRates, alignedRatio } from './indicators.mjs';
+import { parseMultplTable, capeContext, DXY_WEIGHTS, dxyFromRates, alignedRatio, curveStats } from './indicators.mjs';
 import { fetchConcentration } from './holdings.mjs';
 
 const OUT = 'data/market.json';
@@ -397,11 +397,16 @@ async function collectBreadth(prev, list) {
 
 // ── Everything the macro page reads ──────────────────────────────────
 // ── Buffett indicator ────────────────────────────────────────────────
-// Total US corporate equities over GDP. The Wilshire 5000 series this used to
-// lean on was withdrawn from FRED — FRED's own search returns nothing for it —
-// but the ratio the indicator is actually defined as is still there:
-// BOGZ1LM883164115Q (Fed Z.1, corporate equities, millions) over GDP
-// (BEA, billions). Both quarterly, so take the latest observation of each.
+// The value of US companies' stock over GDP. The Wilshire 5000 series this
+// used to lean on was withdrawn from FRED, so it comes from the Fed's Z.1
+// accounts instead: NCBEILQ027S, the market value of US nonfinancial
+// corporations' equity (millions), over GDP (billions). That is the usual
+// FRED stand-in for the indicator.
+//
+// It first used BOGZ1LM883164115Q, every sector's holdings of corporate
+// equities. Holdings include the foreign stocks Americans own, which are not
+// part of the US market the indicator measures: 287% on Q2 2026, against 255%
+// on the usual definition. Both quarterly; take the latest of each.
 async function fredLatest(seriesId) {
   const key = process.env.FRED_API_KEY;
   if (!key) throw new Error('no api key');
@@ -421,7 +426,7 @@ async function fredLatest(seriesId) {
 async function collectBuffett() {
   try {
     const [eq, gdp] = await Promise.all([
-      fredLatest('BOGZ1LM883164115Q'),
+      fredLatest('NCBEILQ027S'),
       fredLatest('GDP'),
     ]);
     // equities are millions, GDP billions — divide the first by 1000 to match
@@ -430,7 +435,7 @@ async function collectBuffett() {
     console.log(`buffett: ${pct.toFixed(1)}%  (equities ${eq.date}, gdp ${gdp.date})`);
     return {
       value: Math.round(pct), asOf: eq.date, gdpAsOf: gdp.date,
-      source: 'fred', series: 'BOGZ1LM883164115Q/GDP',
+      source: 'fred', series: 'NCBEILQ027S/GDP',
     };
   } catch (e) {
     console.log(`buffett: FAILED — ${e.message}`);
@@ -549,6 +554,33 @@ async function collectConcentration(prev) {
     const kept = carryForward(prev && prev.macro && prev.macro.concentration, 10, e.message);
     if (kept) console.log(`concentration: keeping ${kept.top10}% from ${kept.asOf}`);
     return kept || { top10: null, error: e.message };
+  }
+}
+
+// ── VIX ──────────────────────────────────────────────────────────────
+// From CBOE's own daily file: the official close, the same evening. FRED's
+// VIXCLS is the same series a day later — the risk card was showing the day
+// before yesterday's VIX for much of each day. FRED stays as the fallback
+// (collectMacro).
+async function collectVix() {
+  try {
+    const res = await fetch('https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv',
+                            { signal: AbortSignal.timeout(20000) });
+    if (!res.ok) throw new Error('cboe ' + res.status);
+    const lines = (await res.text()).trim().split('\n');
+    if (!/^DATE,OPEN,HIGH,LOW,CLOSE/i.test(lines[0])) throw new Error('unexpected header: ' + lines[0].slice(0, 40));
+    const row = l => {
+      const c = l.split(','), [m, d, y] = c[0].split('/');
+      return { date: `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`, close: parseFloat(c[4]) };
+    };
+    const last = row(lines.at(-1)), prev = row(lines.at(-2));
+    if (!(last.close > 0 && last.close < 200)) throw new Error(`implausible ${last.close}`);
+    console.log(`vix: ${last.close} (cboe ${last.date})`);
+    return { value: last.close, change: prev.close ? (last.close / prev.close - 1) * 100 : null,
+             asOf: Date.parse(last.date + 'T00:00:00Z') / 1000, source: 'cboe' };
+  } catch (e) {
+    console.log(`vix: CBOE unavailable (${e.message}) — keeping FRED's`);
+    return null;
   }
 }
 
@@ -753,6 +785,7 @@ async function collectQuotes() {
 // The yield curve needs a two-year weekly series, not just a spot value.
 async function collectYields() {
   const out = {};
+  const daily = {};   // the full daily series, before thinning, for curveStats
   for (const [key, symbol] of [['tnx', '^TNX'], ['irx', '^IRX'], ['tyx', '^TYX']]) {
     try {
       const { closes, stamps, source } = await withRetry(
@@ -760,6 +793,7 @@ async function collectYields() {
         // back from its last real inversion, and 2022-24's was too long and too
         // early to fit inside a two-year window — the card could not see it.
         () => getHistory(symbol, '5y', 20), 3, symbol);
+      daily[key] = closes.map((v, i) => ({ date: new Date(stamps[i] * 1000).toISOString().slice(0, 10), v }));
       // thin a daily series down to roughly weekly to keep the file small
       const step = Math.max(1, Math.round(closes.length / 260));   // ~weekly over 5y
       const c = [], t = [];
@@ -773,6 +807,11 @@ async function collectYields() {
       out[key] = { closes: [], stamps: [], latest: null, error: e.message };
       console.log(`yield ${key}: FAILED — ${e.message}`);
     }
+  }
+  // Inversions are counted here, on every day, not on the page's weekly sample.
+  if (daily.tnx && daily.irx) {
+    out.curve = curveStats(daily.tnx, daily.irx);
+    if (out.curve) console.log(`curve: ${out.curve.current} (${out.curve.asOf}); ${out.curve.inversions} inversion(s) by monthly average, deepest ${out.curve.trough} (${out.curve.troughDate}), back above zero ${out.curve.uninverted}`);
   }
   return out;
 }
@@ -797,7 +836,7 @@ const universe = await loadConstituents();
 // per-minute cap turns away.
 const quotes = await collectQuotes().catch(e => ({ error: e.message }));
 
-const [breadth, macro, yields, fx, buffett, cape, savings, dxy, concentration, levels, gold] = await Promise.all([
+const [breadth, macro, yields, fx, buffett, cape, savings, dxy, concentration, levels, gold, vix] = await Promise.all([
   collectBreadth(prev, universe.symbols)
     .catch(e => ({ value: null, method: 'failed', error: e.message })),
   collectMacro(),
@@ -810,9 +849,11 @@ const [breadth, macro, yields, fx, buffett, cape, savings, dxy, concentration, l
   collectConcentration(prev),
   collectLevels(prev, quotes),
   collectGold(quotes),
+  collectVix(),
 ]);
 Object.assign(macro, fx);   // the page reads FX out of macro alongside the rest
 Object.assign(macro, { cape, savings, dxy, concentration, gold });
+if (vix) macro.vix = vix;   // CBOE's same-day close over FRED's day-late copy
 // What "the index" meant for this reading: how many names, and whether the
 // membership was current or the fallback copy.
 Object.assign(breadth, {

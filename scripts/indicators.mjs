@@ -99,3 +99,55 @@ export function alignedRatio(obs, prevClose, quoteTime) {
   if (!match || !(match.v > 0)) return null;
   return { ratio: match.v / prevClose, date: match.date };
 }
+
+// ── The yield curve, judged by monthly averages ─────────────────────
+// The 10-year minus 3-month spread dips a few hundredths below zero and back
+// without meaning anything. Counted day by day — and on the weekly sample the
+// page's chart uses — the number of "inversions" changed between runs with
+// nothing in the market changing: 4 on 25 Sep, 6 on 1 Oct, from the same
+// history sampled on different weekdays. The New York Fed's recession model
+// works from the monthly average, so do that: an inversion is a run of whole
+// months whose average spread is below zero. The month in progress is not
+// judged until it ends; today's daily spread speaks for the present.
+//
+// ten, three: daily observations [{date, v}], oldest first.
+export function curveStats(ten, three) {
+  const t3 = new Map(three.map(o => [o.date, o.v]));
+  const daily = ten.filter(o => t3.has(o.date)).map(o => ({ date: o.date, v: +(o.v - t3.get(o.date)).toFixed(2) }));
+  if (daily.length < 60) return null;
+  const months = [];
+  for (const o of daily) {
+    const key = o.date.slice(0, 7);
+    if (!months.length || months.at(-1).month !== key) months.push({ month: key, sum: 0, n: 0, min: Infinity, minDate: null, first: o.date });
+    const m = months.at(-1);
+    m.sum += o.v; m.n++;
+    if (o.v < m.min) { m.min = o.v; m.minDate = o.date; }
+  }
+  const complete = months.slice(0, -1);
+  const episodes = [];
+  let open = false;
+  for (const m of complete) {
+    if (m.sum / m.n < 0) {
+      if (open) {
+        const e = episodes.at(-1);
+        e.to = m.month;
+        if (m.min < e.trough) { e.trough = m.min; e.troughDate = m.minDate; }
+      } else {
+        episodes.push({ from: m.month, to: m.month, trough: m.min, troughDate: m.minDate });
+        open = true;
+      }
+    } else open = false;
+  }
+  const last = episodes.at(-1);
+  // Back above zero: the first trading day of the first month after the last
+  // inverted one. Null while that month has not started.
+  const after = last ? months.find(m => m.month > last.to) : null;
+  const deepest = episodes.reduce((a, e) => (!a || e.trough < a.trough ? e : a), null);
+  return {
+    current: daily.at(-1).v, asOf: daily.at(-1).date, windowStart: daily[0].date,
+    inversions: episodes.length,
+    trough: deepest ? deepest.trough : null, troughDate: deepest ? deepest.troughDate : null,
+    lastFrom: last ? last.from : null, lastTo: last ? last.to : null,
+    uninverted: after ? after.first : null,
+  };
+}
