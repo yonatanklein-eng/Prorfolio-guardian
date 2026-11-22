@@ -73,35 +73,48 @@ body{background:var(--bg);color:var(--text);font-family:'Heebo',-apple-system,sa
 .verdict.load .verdict-title{color:var(--muted);}
 .verdict.wait .verdict-title{color:var(--blue);}
 
-/* PLAN — the rules as steps, with where we stand on them */
-.plan{padding:14px 14px 12px;}
-.plan-expo{display:flex;align-items:center;gap:10px;margin-bottom:4px;}
-.expo-bar{display:flex;gap:4px;flex:1;}
-.expo-seg{flex:1;height:10px;border-radius:5px;background:var(--bg);}
-.expo-seg.on{background:var(--green);}
-.expo-text{font-size:13px;color:var(--text2);white-space:nowrap;}
-.plan-sec{font-size:12px;font-weight:700;color:var(--muted);margin:12px 2px 6px;}
-.step{display:flex;align-items:center;gap:10px;padding:10px;border-radius:12px;margin-bottom:6px;background:var(--bg);}
-.step.idle{opacity:.5;}
-.step.now{background:var(--card);box-shadow:inset 0 0 0 2px var(--blue);}
-.step.exit.now.alert{box-shadow:inset 0 0 0 2px var(--red);}
-.step-icon{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-  font-size:13px;font-weight:700;flex-shrink:0;background:var(--card);color:var(--muted);}
-.step.done .step-icon{background:var(--green);color:#fff;}
-.step.now .step-icon{background:var(--blue);color:#fff;}
-.step.exit.done .step-icon,.step.exit.alert .step-icon{background:var(--red);color:#fff;}
-.step-main{flex:1;min-width:0;}
-.step-cond{font-size:14px;color:var(--text);line-height:1.3;}
-.step-sub{font-size:12px;color:var(--muted);margin-top:2px;}
-.step-act{font-size:12px;font-weight:700;color:var(--blue);flex-shrink:0;text-align:left;}
-.step.exit.alert .step-act,.step.exit.done .step-act{color:var(--red);}
-.here{font-size:11px;font-weight:700;color:#fff;background:var(--blue);border-radius:6px;padding:1px 6px;margin-inline-start:6px;}
-.step.exit.alert .here{background:var(--red);}
-.pips{display:flex;gap:3px;margin-top:5px;}
-.pip{flex:0 0 14px;height:6px;border-radius:3px;background:var(--sep);}
+/* PLAN — where we stand: how much the plan holds, then a short timeline of
+   what happened and what comes next */
+.plan{padding:16px 16px 12px;}
+.gauge-head{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.gauge-head b{font-size:18px;color:var(--text);}
+.gauge{display:flex;gap:4px;}
+.gauge-seg{flex:1;}
+.gauge-bar{height:10px;border-radius:5px;background:var(--bg);}
+.gauge-seg.on .gauge-bar{background:var(--green);}
+.gauge-lbl{font-size:11px;color:var(--muted);text-align:left;margin-top:3px;font-variant-numeric:tabular-nums;}
+.tl-list{margin-top:16px;}
+.tl{position:relative;display:flex;gap:12px;padding-bottom:16px;}
+.tl:last-child{padding-bottom:0;}
+.tl::before{content:'';position:absolute;top:20px;bottom:0;inset-inline-start:8px;width:2px;background:var(--sep);}
+.tl:last-child::before{display:none;}
+.tl-dot{width:18px;height:18px;border-radius:50%;flex-shrink:0;margin-top:1px;box-sizing:border-box;
+  border:2px solid var(--sep);background:var(--card);position:relative;}
+.tl.past-exit .tl-dot{background:var(--red);border-color:var(--red);}
+.tl.past-buy .tl-dot{background:var(--green);border-color:var(--green);}
+.tl.next .tl-dot{border:5px solid var(--blue);}
+.tl.next.alert .tl-dot{border-color:var(--red);}
+.tl-body{flex:1;min-width:0;}
+.tl-title{font-size:15px;color:var(--text);line-height:1.35;}
+.tl.next .tl-title{font-weight:700;}
+.tl.later .tl-title{color:var(--muted);}
+.tl-when{font-weight:700;color:var(--muted);}
+.tl.next .tl-when{color:var(--blue);}
+.tl.next.alert .tl-when{color:var(--red);}
+.tl-sub{font-size:13px;color:var(--muted);margin-top:3px;line-height:1.5;}
+.pips{display:flex;gap:3px;margin-top:6px;}
+.pip{flex:0 0 16px;height:6px;border-radius:3px;background:var(--sep);}
 .pip.on{background:var(--blue);}
-.step.exit .pip.on{background:var(--red);}
-.plan-note{font-size:12px;color:var(--muted);line-height:1.6;margin-top:8px;}
+.alert .pip.on{background:var(--red);}
+.plan-note{font-size:13px;color:var(--text2);line-height:1.5;margin-top:14px;padding:10px 12px;border-radius:10px;background:var(--bg);}
+.plan-note.alert{background:var(--red-bg);color:var(--red);font-weight:600;}
+.plan-foot{font-size:12px;color:var(--muted);line-height:1.6;margin-top:12px;}
+.plan-rules{padding:0 16px 14px;font-size:13px;color:var(--text2);}
+.plan-rules summary{cursor:pointer;color:var(--blue);font-weight:600;padding:4px 0;}
+.plan-rules table{width:100%;border-collapse:collapse;margin-top:6px;}
+.plan-rules td{padding:7px 0;border-top:1px solid var(--sep);vertical-align:top;line-height:1.4;}
+.plan-rules td:last-child{text-align:left;font-weight:600;color:var(--text);white-space:nowrap;padding-inline-start:10px;}
+.plan-rules-note{margin-top:6px;color:var(--muted);font-size:12px;}
 .verdict-body{font-size:15px;line-height:1.5;color:var(--text2);}
 
 /* SEC HEADER */
@@ -275,9 +288,24 @@ canvas{width:100%!important;border-radius:8px;}
     </div>
   </div>
 
-  <!-- The plan, with where we stand on it. Steps fill in from the closes. -->
+  <!-- Where we stand on the plan. The card fills in from the closes; the
+       rules below it are static, so a refresh does not fold them shut. -->
   <div class="sec-header">התוכנית — איפה אנחנו</div>
-  <div class="group"><div class="plan" id="planCard"><div class="plan-note">טוען…</div></div></div>
+  <div class="group">
+    <div class="plan" id="planCard"><div class="plan-foot">טוען…</div></div>
+    <details class="plan-rules">
+      <summary>כל הכללים</summary>
+      <table>
+        <tr><td>3 ימים רצופים מתחת לקו</td><td>מוכרים הכל</td></tr>
+        <tr><td>3 ימים רצופים מעל הקו</td><td>קונים שליש</td></tr>
+        <tr><td>10 ימים רצופים מעל הקו</td><td>עוד שליש</td></tr>
+        <tr><td>ממוצע 50 יום עולה מעל ממוצע 200</td><td>השליש האחרון</td></tr>
+        <tr><td>3 ימים רצופים מתחת לקו באמצע החזרה</td><td>מוכרים את מה שנקנה</td></tr>
+        <tr><td>ירידה שלא חוצה את הקו</td><td>לא עושים כלום</td></tr>
+      </table>
+      <div class="plan-rules-note">שליש = 13% מהתיק · מלא = 40%</div>
+    </details>
+  </div>
 
   <div class="timestamp" id="ts0">—</div>
 
@@ -683,48 +711,63 @@ const pips = (n, k) => '<div class="pips">' +
 const gapText = (st, named) => `${Math.abs(st.gapPct).toFixed(1)}% ` +
   (st.gapPct >= 0 ? (named ? 'מעל קו 200' : 'מעל הקו') : (named ? 'מתחת לקו 200' : 'מתחת לקו'));
 const sharePct = thirds => Math.round(thirds / 3 * PLAN_SHARE);
+const daysLeft = n => n === 1 ? 'עוד יום אחד' : `עוד ${n} ימים ברצף`;
 
-// The plan as steps — the exit, then three thirds back — each one done, the one
-// we stand at, or not in play yet.
+// Where we stand, in words: how much of the portfolio the plan puts in stocks,
+// then a short timeline — what happened, what comes next, and how far along
+// it is. Only the steps that matter from here are shown; the full rules sit
+// folded under the card.
 function renderPlan(st) {
   const el = document.getElementById('planCard');
-  if (!st) { el.innerHTML = '<div class="plan-note">אין מספיק נתונים לחישוב.</div>'; return; }
+  if (!st) { el.innerHTML = '<div class="plan-foot">אין מספיק נתונים לחישוב.</div>'; return; }
   const since = st.lastExit ? st.events.slice(st.events.indexOf(st.lastExit) + 1) : [];
-  const step = (cls, icon, cond, sub, act) =>
-    `<div class="step ${cls}"><div class="step-icon">${icon}</div><div class="step-main">` +
-    `<div class="step-cond">${cond}${cls.includes('now') ? '<span class="here">כאן</span>' : ''}</div>` +
-    (sub ? `<div class="step-sub">${sub}</div>` : '') +
-    `</div><div class="step-act">${act}</div></div>`;
+  const row = (cls, when, title, sub) =>
+    `<div class="tl ${cls}"><div class="tl-dot"></div><div class="tl-body">` +
+    `<div class="tl-title">${when ? `<span class="tl-when">${when}</span> ` : ''}${title}</div>` +
+    (sub ? `<div class="tl-sub">${sub}</div>` : '') + '</div></div>';
+  // "so far: 1 of 3", with the gap to the line while the count is still at zero
+  const soFar = (k, n) => `עד עכשיו: ${k} מתוך ${n}` + (k ? '' : ` · המדד ${gapText(st)}`) + pips(n, k);
 
-  let h = '<div class="plan-expo"><div class="expo-bar">' +
-    [1, 2, 3].map(k => `<div class="expo-seg${st.held >= k ? ' on' : ''}"></div>`).join('') +
-    `</div><div class="expo-text">מניות בתיק: ${sharePct(st.held)}% מתוך ${PLAN_SHARE}%</div></div>`;
+  let h = `<div class="gauge-head">במניות לפי התוכנית: <b>${sharePct(st.held)}%</b> מהתיק</div><div class="gauge">` +
+    [1, 2, 3].map(k => `<div class="gauge-seg${st.held >= k ? ' on' : ''}"><div class="gauge-bar"></div>` +
+                       `<div class="gauge-lbl">${sharePct(k)}%</div></div>`).join('') +
+    '</div><div class="tl-list">';
 
-  h += '<div class="plan-sec">יציאה</div>';
-  h += st.held > 0
-    ? step('exit now' + (st.below ? ' alert' : ''), '!', '3 סגירות רצופות מתחת לקו',
-        (st.below ? `${st.below} מתוך 3` : gapText(st)) + pips(3, st.below), 'מוכרים הכל')
-    : step('exit done', '✓', '3 סגירות רצופות מתחת לקו', `הופעל ב־${fmtDay(st.lastExit.date)}`, 'מוכרים הכל');
-
-  h += '<div class="plan-sec">חזרה, בשלישים</div>';
-  [['3 סגירות רצופות מעל הקו', 3], ['10 סגירות רצופות מעל הקו', 10], ['ממוצע 50 יום מעל ממוצע 200', 0]]
-    .forEach(([cond, n], k) => {
-      const third = k + 1, act = third === 3 ? 'שליש אחרון' : 'שליש';
-      if (st.held === 3) return void (h += step('idle', third, cond, '', act));
+  if (st.held === 3) {
+    h += row('next' + (st.below ? ' alert' : ''), 'מוכרים הכל רק אם:', '3 ימים רצופים מתחת לקו', soFar(st.below, 3));
+  } else {
+    h += row('past-exit', fmtDay(st.lastExit.date) + ' ·', 'יציאה: מכירת כל המניות', '3 ימים רצופים מתחת לקו');
+    [
+      { next: 'קונים שליש', later: '', past: 'קנייה: שליש ראשון', cond: 'אחרי 3 ימים רצופים מעל הקו', n: 3 },
+      { next: 'קונים עוד שליש', later: 'אחר כך: עוד שליש', past: 'קנייה: שליש שני', cond: 'אחרי 10 ימים רצופים מעל הקו', n: 10 },
+      { next: 'קונים את השליש האחרון', later: 'בסוף: השליש האחרון', past: 'קנייה: השליש האחרון', cond: 'כשממוצע 50 יעלה מעל ממוצע 200', n: 0 },
+    ].forEach((s, k) => {
+      const third = k + 1;
       if (st.held >= third) {
         const e = since.find(x => x.type === 'buy' + third);
-        return void (h += step('done', '✓', cond, e ? `בוצע ב־${fmtDay(e.date)}` : '', act));
+        h += row('past-buy', e ? fmtDay(e.date) + ' ·' : '', s.past, '');
+      } else if (st.held === third - 1) {
+        const how = s.n ? soFar(Math.min(st.above, s.n), s.n)
+          : st.golden ? 'כבר מתקיים — נקנה ביום הבא שנסגר מעל הקו'
+                      : `ממוצע 50 עדיין נמוך ב־${Math.abs(st.goldenGapPct).toFixed(1)}%`;
+        h += row('next', 'הבא:', s.next, `${s.cond}<br>${how}`);
+      } else {
+        h += row('later', '', s.later, s.cond);
       }
-      if (st.held < third - 1) return void (h += step('idle', third, cond, '', act));
-      const sub = n ? (st.above ? `${st.above} מתוך ${n}` : gapText(st)) + pips(n, Math.min(st.above, n))
-                    : st.golden ? 'מתקיים — נקנה בסגירה הבאה מעל הקו'
-                                : `ממוצע 50 עוד ${Math.abs(st.goldenGapPct).toFixed(1)}% מתחת`;
-      h += step('now', third, cond, sub, act);
     });
+  }
+  h += '</div>';
 
-  h += '<div class="plan-note">✋ ירידה שלא חוצה את הקו — לא עושים כלום.<br>' +
-       '🔁 3 סגירות מתחת לקו באמצע החזרה — מוכרים את מה שנקנה ומתחילים מחדש.<br>' +
-       `📅 לפי הסגירה של ${fmtDay(st.date)}. נספרות רק סגירות, לא המחיר במהלך היום.</div>`;
+  // Fully in, the count is already on the row above; the reassurance is for
+  // when there is no count.
+  if (st.held === 3) {
+    if (!st.below) h += '<div class="plan-note">✋ ירידה שלא חוצה את הקו — לא עושים כלום.</div>';
+  } else if (st.held > 0 && st.below)
+    h += `<div class="plan-note alert">⚠️ כבר ${st.below} מתוך 3 ימים מתחת לקו. ${daysLeft(3 - st.below)} — ומוכרים את מה שנקנה.</div>`;
+  else
+    h += '<div class="plan-note">🔁 אם בדרך חזרה יש שוב 3 ימים רצופים מתחת לקו — מוכרים ומתחילים מההתחלה.</div>';
+
+  h += `<div class="plan-foot">הקו = ממוצע 200 הימים (הכחול בגרף) · כל יום נספר לפי מחיר הסגירה · נכון ל־${fmtDay(st.date)}</div>`;
   el.innerHTML = h;
 }
 
@@ -736,28 +779,27 @@ function planVerdict(st) {
   const fresh = last && st.index - last.i <= 4;
   if (fresh && last.type === 'exit')
     return setVerdict('exit', '🚨', 'יציאה: מוכרים את המניות',
-      `3 סגירות רצופות מתחת לקו 200 (ב־${fmtDay(last.date)}). לפי התוכנית: מוכרים את כל ה־${PLAN_SHARE}%.`);
-  if (fresh) {
+      `המדד נסגר 3 ימים רצופים מתחת לקו 200, האחרון ב־${fmtDay(last.date)}. לפי התוכנית: מוכרים את כל המניות.`);
+  // A close below since the buy turns it into a warning: that matters more now.
+  if (fresh && !st.below) {
     const n = st.events.filter(e => e.i === last.i && e.type !== 'exit').length;
     const what = st.held === 3 && n === 3 ? 'חוזרים במלואם' : n === 2 ? 'שני שלישים'
                : st.held === 3 ? 'השליש האחרון' : st.held === 2 ? 'שליש שני' : 'שליש ראשון';
     return setVerdict('hold', '🟢', `קנייה: ${what}`,
       `סיגנל ב־${fmtDay(last.date)}. לפי התוכנית: קונים ${sharePct(n)}% מהתיק.`);
   }
-  if (st.held > 0 && st.below) {
-    const left = 3 - st.below;
+  if (st.held > 0 && st.below)
     return setVerdict('watch', '⚠️', `אזהרה: ${st.below} מתוך 3`,
-      `עוד ${left === 1 ? 'סגירה אחת' : left + ' סגירות'} מתחת לקו 200 = מוכרים${st.held < 3 ? ' את מה שנקנה' : ''}.`);
-  }
+      `${daysLeft(3 - st.below)} מתחת לקו 200 = מוכרים${st.held < 3 ? ' את מה שנקנה' : ''}.`);
   if (st.held === 3)
     return setVerdict('hold', '✅', 'מושקעים — הכל תקין', `המדד ${gapText(st, true)}. אין מה לעשות.`);
   if (st.held === 0)
-    return setVerdict('wait', '⏸', 'בחוץ — מחכים', `חוזרים אחרי 3 סגירות רצופות מעל קו 200 (עכשיו ${st.above} מתוך 3).`);
+    return setVerdict('wait', '⏸', 'בחוץ — מחכים', `חוזרים אחרי 3 ימים רצופים מעל קו 200 (עד עכשיו ${st.above} מתוך 3).`);
   if (st.held === 1)
-    return setVerdict('wait', '⅓', 'שליש בפנים', `השליש הבא: 10 סגירות רצופות מעל קו 200 (עכשיו ${st.above} מתוך 10).`);
+    return setVerdict('wait', '⅓', 'שליש בפנים', `השליש הבא: אחרי 10 ימים רצופים מעל קו 200 (עד עכשיו ${st.above} מתוך 10).`);
   return setVerdict('wait', '⅔', 'שני שלישים בפנים', st.golden
-    ? 'השליש האחרון: בסגירה הבאה מעל קו 200.'
-    : `השליש האחרון: כשממוצע 50 יעלה מעל ממוצע 200 (חסר ${Math.abs(st.goldenGapPct).toFixed(1)}%).`);
+    ? 'השליש האחרון: ביום הבא שנסגר מעל קו 200.'
+    : `השליש האחרון: כשממוצע 50 יעלה מעל ממוצע 200 (עדיין נמוך ב־${Math.abs(st.goldenGapPct).toFixed(1)}%).`);
 }
 
 // While the market trades, today's price is not a close yet: say where it is
@@ -768,11 +810,11 @@ function liveLine(ifClosed) {
   const t = ifClosed.today;
   const then = t.includes('exit') ? 'יציאה'
     : t.length ? 'קנייה'
-    : ifClosed.held > 0 && ifClosed.below ? `${ifClosed.below} מתוך 3 מתחת`
-    : ifClosed.held === 0 && ifClosed.above ? `${ifClosed.above} מתוך 3 מעל`
-    : ifClosed.held === 1 && ifClosed.above ? `${ifClosed.above} מתוך 10 מעל`
+    : ifClosed.held > 0 && ifClosed.below ? `יום ${ifClosed.below} מתוך 3 מתחת לקו`
+    : ifClosed.held === 0 && ifClosed.above ? `יום ${ifClosed.above} מתוך 3 מעל הקו`
+    : ifClosed.held === 1 && ifClosed.above ? `יום ${ifClosed.above} מתוך 10 מעל הקו`
     : '';
-  el.textContent = `במסחר עכשיו: ${gapText(ifClosed, true)}` + (then ? ` · סגירה כזו = ${then}` : '') + '.';
+  el.textContent = `במסחר עכשיו: ${gapText(ifClosed, true)}` + (then ? ` · אם ייסגר כך: ${then}` : '') + '.';
 }
 
 function drawChart(labels, prices, sma200s, curPrice, curSMA, tries) {
