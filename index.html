@@ -83,6 +83,15 @@ body{background:var(--bg);color:var(--text);font-family:'Heebo',-apple-system,sa
 .gauge-bar{height:10px;border-radius:5px;background:var(--bg);}
 .gauge-seg.on .gauge-bar{background:var(--green);}
 .gauge-lbl{font-size:11px;color:var(--muted);text-align:left;margin-top:3px;font-variant-numeric:tabular-nums;}
+.days-head{font-size:12px;font-weight:700;color:var(--muted);margin:16px 2px 6px;}
+.days{display:flex;gap:4px;}
+.day{flex:1;min-width:0;border-radius:10px;padding:6px 2px;text-align:center;font-variant-numeric:tabular-nums;}
+.day b{display:block;font-size:12px;font-weight:600;color:var(--text);}
+.day span{display:block;font-size:12px;font-weight:700;margin-top:1px;}
+.day.up{background:var(--green-bg);}
+.day.up span{color:var(--green);}
+.day.down{background:var(--red-bg);}
+.day.down span{color:var(--red);}
 .tl-list{margin-top:16px;}
 .tl{position:relative;display:flex;gap:12px;padding-bottom:16px;}
 .tl:last-child{padding-bottom:0;}
@@ -731,6 +740,12 @@ function renderPlan(st) {
   let h = `<div class="gauge-head">במניות לפי התוכנית: <b>${sharePct(st.held)}%</b> מהתיק</div><div class="gauge">` +
     [1, 2, 3].map(k => `<div class="gauge-seg${st.held >= k ? ' on' : ''}"><div class="gauge-bar"></div>` +
                        `<div class="gauge-lbl">${sharePct(k)}%</div></div>`).join('') +
+    '</div>';
+  // The last five closes against the line, newest at the right as in the chart.
+  const pct = g => { const a = Math.abs(g); return (a < 0.1 ? a.toFixed(2) : a.toFixed(1)) + '%'; };
+  h += '<div class="days-head">5 הימים האחרונים מול הקו</div><div class="days">' +
+    st.recent.map(r => `<div class="day ${r.gapPct < 0 ? 'down' : 'up'}"><b>${fmtDay(r.date)}</b>` +
+                       `<span>${r.gapPct < 0 ? 'מתחת' : 'מעל'}<br>${pct(r.gapPct)}</span></div>`).join('') +
     '</div><div class="tl-list">';
 
   if (st.held === 3) {

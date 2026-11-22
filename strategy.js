@@ -52,6 +52,14 @@
     if (last < 0) return null;
     const sma200 = average(closes, last, 200), sma50 = average(closes, last, 50);
     const today = events.filter(e => e.i === last).map(e => e.type);
+    // The last few closes against the line, newest first: which days counted,
+    // and by how much — a close four points under the line still counts.
+    const recent = [];
+    for (let k = last; k >= 0 && recent.length < 5; k--) {
+      const a = average(closes, k, 200);
+      if (a == null) break;
+      recent.push({ date: stamps[k], close: closes[k], sma200: a, gapPct: (closes[k] / a - 1) * 100 });
+    }
     return {
       held, below, above,
       index: last,                             // the close the state stands at
@@ -61,6 +69,7 @@
       golden: sma50 > sma200,
       goldenGapPct: (sma50 / sma200 - 1) * 100,
       today,                                   // events on the last close: 'exit', 'buy1'…
+      recent,
       lastExit: events.filter(e => e.type === 'exit').pop() || null,
       events,
     };

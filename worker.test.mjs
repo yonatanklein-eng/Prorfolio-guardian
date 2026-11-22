@@ -290,6 +290,9 @@ console.log('\n[15] Portfolio rules over the closes');
   const so = run(out);
   check('the third close below in a row sells everything',
         so.held === 0 && types(so) === 'exit' && so.today.join() === 'exit' && so.lastExit.i === out.length - 1, so);
+  check('the last five closes against the line, newest first',
+        so.recent.length === 5 && so.recent[0].i === undefined && so.recent[0].gapPct < 0 &&
+        so.recent[3].gapPct === 0 && so.recent[0].date > so.recent[1].date, so.recent);
   const bounce = run([...out, 101, 101, 99, 101, 101]);
   check('a close below on the way back resets the count', bounce.held === 0 && bounce.above === 2, bounce);
   const in1 = [...out, 101, 101, 99, 101, 101, 101];
