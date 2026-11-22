@@ -3,7 +3,8 @@
 //   Out:  3 closes in a row below the 200-day average  -> sell all the stocks.
 //   Back: 3 closes in a row above it                    -> buy a third,
 //         10 closes in a row above it                   -> a second third,
-//         the 50-day average above the 200-day          -> the last third.
+//         the 50-day average above the 200-day          -> the last third
+//         (on a close above the line).
 //   3 closes below at any point on the way back sells what was bought.
 //
 // Re-entry mirrors the exit: the old rule bought the first third on the first
@@ -41,17 +42,19 @@
         events.push({ i, date: stamps[i], type: 'exit' });
         continue;
       }
-      // Several steps can land on the same day: by the tenth close above, the
-      // 50-day average may already be over the 200-day.
+      // Several steps can land on the same day: after a short dip the 50-day
+      // average may never have left the 200-day, so the tenth close above
+      // brings the last third back with the second.
       if (held === 0 && above >= 3) { held = 1; events.push({ i, date: stamps[i], type: 'buy1' }); }
       if (held === 1 && above >= 10) { held = 2; events.push({ i, date: stamps[i], type: 'buy2' }); }
-      if (held === 2 && above >= 10 && s50 > s200) { held = 3; events.push({ i, date: stamps[i], type: 'buy3' }); }
+      if (held === 2 && above >= 1 && s50 > s200) { held = 3; events.push({ i, date: stamps[i], type: 'buy3' }); }
     }
     if (last < 0) return null;
     const sma200 = average(closes, last, 200), sma50 = average(closes, last, 50);
     const today = events.filter(e => e.i === last).map(e => e.type);
     return {
       held, below, above,
+      index: last,                             // the close the state stands at
       close: closes[last], date: stamps[last],
       sma200, sma50,
       gapPct: (closes[last] / sma200 - 1) * 100,
