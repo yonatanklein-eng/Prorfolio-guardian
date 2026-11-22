@@ -2,6 +2,24 @@
 // reach github.io when the dev sandbox cannot.
 import { spawnSync } from 'node:child_process';
 const base = 'https://yonatanklein-eng.github.io/Prorfolio-guardian/';
+// GitHub's own status page: is Pages having an incident right now?
+try {
+  const st = await (await fetch('https://www.githubstatus.com/api/v2/summary.json')).json();
+  console.log('GITHUB STATUS:', st.status.description);
+  for (const c of st.components) if (/Pages|Actions/.test(c.name)) console.log('  ', c.name, c.status);
+  for (const i of st.incidents || []) console.log('  INCIDENT:', i.name, i.status, i.updated_at);
+} catch (e) { console.log('status page ERR', e.message); }
+// The way a phone asks for the page, five times a few seconds apart, to catch
+// an outage that comes and goes.
+const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+for (let k = 0; k < 5; k++) {
+  try {
+    const r = await fetch(base, { headers: { 'User-Agent': UA } });
+    const b = await r.text();
+    console.log(`try ${k + 1}: ${r.status} ${b.length}B new-card=${b.includes('days-head')} via=${r.headers.get('via')} served-by=${r.headers.get('x-served-by')}`);
+  } catch (e) { console.log(`try ${k + 1}: ERR ${e.message}`); }
+  await new Promise(r => setTimeout(r, 4000));
+}
 for (const path of ['', 'index.html', 'strategy.js', 'data/market.json']) {
   const url = base + path;
   try {
