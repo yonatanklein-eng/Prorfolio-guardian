@@ -54,6 +54,9 @@ body{background:var(--bg);color:var(--text);font-family:'Heebo',-apple-system,sa
 .verdict.exit{background:var(--red-bg);}
 .verdict.watch{background:var(--amber-bg);}
 .verdict.load{background:var(--card);}
+.verdict.wait{background:var(--blue-bg);}
+.verdict-live{font-size:13px;color:var(--muted);margin-top:6px;}
+.verdict-live:empty{display:none;}
 .verdict-top{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
 .verdict-icon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;
   justify-content:center;font-size:22px;flex-shrink:0;}
@@ -61,12 +64,44 @@ body{background:var(--bg);color:var(--text);font-family:'Heebo',-apple-system,sa
 .verdict.exit .verdict-icon{background:var(--red);}
 .verdict.watch .verdict-icon{background:var(--amber);}
 .verdict.load .verdict-icon{background:var(--bg);}
+.verdict.wait .verdict-icon{background:var(--blue);}
 .verdict-label{font-size:13px;font-weight:500;color:var(--muted);margin-bottom:2px;}
 .verdict-title{font-size:22px;font-weight:700;letter-spacing:-.3px;}
 .verdict.hold .verdict-title{color:var(--green);}
 .verdict.exit .verdict-title{color:var(--red);}
 .verdict.watch .verdict-title{color:var(--amber);}
 .verdict.load .verdict-title{color:var(--muted);}
+.verdict.wait .verdict-title{color:var(--blue);}
+
+/* PLAN — the rules as steps, with where we stand on them */
+.plan{padding:14px 14px 12px;}
+.plan-expo{display:flex;align-items:center;gap:10px;margin-bottom:4px;}
+.expo-bar{display:flex;gap:4px;flex:1;}
+.expo-seg{flex:1;height:10px;border-radius:5px;background:var(--bg);}
+.expo-seg.on{background:var(--green);}
+.expo-text{font-size:13px;color:var(--text2);white-space:nowrap;}
+.plan-sec{font-size:12px;font-weight:700;color:var(--muted);margin:12px 2px 6px;}
+.step{display:flex;align-items:center;gap:10px;padding:10px;border-radius:12px;margin-bottom:6px;background:var(--bg);}
+.step.idle{opacity:.5;}
+.step.now{background:var(--card);box-shadow:inset 0 0 0 2px var(--blue);}
+.step.exit.now.alert{box-shadow:inset 0 0 0 2px var(--red);}
+.step-icon{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:13px;font-weight:700;flex-shrink:0;background:var(--card);color:var(--muted);}
+.step.done .step-icon{background:var(--green);color:#fff;}
+.step.now .step-icon{background:var(--blue);color:#fff;}
+.step.exit.done .step-icon,.step.exit.alert .step-icon{background:var(--red);color:#fff;}
+.step-main{flex:1;min-width:0;}
+.step-cond{font-size:14px;color:var(--text);line-height:1.3;}
+.step-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+.step-act{font-size:12px;font-weight:700;color:var(--blue);flex-shrink:0;text-align:left;}
+.step.exit.alert .step-act,.step.exit.done .step-act{color:var(--red);}
+.here{font-size:11px;font-weight:700;color:#fff;background:var(--blue);border-radius:6px;padding:1px 6px;margin-inline-start:6px;}
+.step.exit.alert .here{background:var(--red);}
+.pips{display:flex;gap:3px;margin-top:5px;}
+.pip{flex:0 0 14px;height:6px;border-radius:3px;background:var(--sep);}
+.pip.on{background:var(--blue);}
+.step.exit .pip.on{background:var(--red);}
+.plan-note{font-size:12px;color:var(--muted);line-height:1.6;margin-top:8px;}
 .verdict-body{font-size:15px;line-height:1.5;color:var(--text2);}
 
 /* SEC HEADER */
@@ -94,33 +129,6 @@ body{background:var(--bg);color:var(--text);font-family:'Heebo',-apple-system,sa
 .pill.blue{background:var(--blue-bg);color:var(--blue);}
 .pill.amber{background:var(--amber-bg);color:var(--amber);}
 .pill.muted{background:var(--bg);color:var(--muted);}
-
-/* STREAK */
-.streak-row{padding:16px;}
-.streak-label{font-size:13px;color:var(--muted);margin-bottom:12px;}
-.streak-dots{display:flex;gap:8px;margin-bottom:10px;}
-.dot{flex:1;height:44px;border-radius:12px;background:var(--bg);display:flex;
-  align-items:center;justify-content:center;font-size:18px;font-weight:700;transition:all .3s;}
-.dot.below{background:var(--red-bg);color:var(--red);}
-.streak-verdict{font-size:14px;font-weight:500;color:var(--text2);}
-.streak-verdict.alert{color:var(--red);}
-
-/* RULES */
-.rule-row{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--sep);}
-.rule-row:last-child{border-bottom:none;}
-.rule-num{width:28px;height:28px;border-radius:50%;background:var(--blue-bg);color:var(--blue);
-  font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;}
-.rule-text{font-size:15px;line-height:1.5;color:var(--text2);flex:1;}
-.rule-text b{color:var(--text);font-weight:700;}
-.rule-text .danger{color:var(--red);font-weight:700;}
-
-/* LADDER */
-.ladder-row{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--sep);}
-.ladder-row:last-child{border-bottom:none;}
-.ladder-step{width:30px;height:30px;border-radius:50%;background:var(--blue);color:#fff;
-  font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
-.ladder-cond{font-size:15px;color:var(--text2);flex:1;line-height:1.4;}
-.ladder-amt{font-size:13px;font-weight:600;color:var(--blue);flex-shrink:0;}
 
 /* RISK METER */
 .risk-meter-card{background:var(--card);border-radius:20px;padding:20px;margin-bottom:10px;}
@@ -245,6 +253,7 @@ canvas{width:100%!important;border-radius:8px;}
       <div><div class="verdict-label">מצב תיק</div><div class="verdict-title" id="verdictTitle">טוען...</div></div>
     </div>
     <div class="verdict-body" id="verdictBody">מחשב את מצב השוק</div>
+    <div class="verdict-live" id="verdictLive"></div>
   </div>
 
   <!-- MINI CHART with embedded values -->
@@ -266,40 +275,11 @@ canvas{width:100%!important;border-radius:8px;}
     </div>
   </div>
 
-  <div class="group">
-    <div class="streak-row">
-      <div class="streak-label">ספירת ימים מתחת לקו — יציאה ביום 3</div>
-      <div class="streak-dots" id="streakDots">
-        <div class="dot">1</div><div class="dot">2</div><div class="dot">3</div>
-      </div>
-      <div class="streak-verdict" id="streakVerdict">טוען...</div>
-    </div>
-  </div>
+  <!-- The plan, with where we stand on it. Steps fill in from the closes. -->
+  <div class="sec-header">התוכנית — איפה אנחנו</div>
+  <div class="group"><div class="plan" id="planCard"><div class="plan-note">טוען…</div></div></div>
 
   <div class="timestamp" id="ts0">—</div>
-
-  <div class="sec-header">מתי לפעול</div>
-  <div class="group">
-    <div class="rule-row">
-      <div class="rule-num">1</div>
-      <div class="rule-text"><b>צא מהמניות</b> — אם S&P נסגר מתחת לSMA200 שלושה ימים ברצף. מכור את כל ה-40% מניות באותו יום.</div>
-    </div>
-    <div class="rule-row">
-      <div class="rule-num">2</div>
-      <div class="rule-text"><b>אל תזוז</b> — ירידה של עד 10% ללא פריצת הקו היא תיקון רגיל.</div>
-    </div>
-    <div class="rule-row">
-      <div class="rule-num">3</div>
-      <div class="rule-text"><b>בדוק פעם בשבוע בלבד</b> — כל יום ראשון בבוקר.</div>
-    </div>
-  </div>
-
-  <div class="sec-header">חזרה למניות — בשלישים</div>
-  <div class="group">
-    <div class="ladder-row"><div class="ladder-step">א</div><div class="ladder-cond">S&P חוצה חזרה מעל SMA200</div><div class="ladder-amt">שליש ראשון</div></div>
-    <div class="ladder-row"><div class="ladder-step">ב</div><div class="ladder-cond">10 ימי מסחר רצופים מעל הקו</div><div class="ladder-amt">שליש שני</div></div>
-    <div class="ladder-row"><div class="ladder-step">ג</div><div class="ladder-cond">Golden Cross — SMA50 מעל SMA200</div><div class="ladder-amt">שליש שלישי</div></div>
-  </div>
 
 </div></div>
 
@@ -422,6 +402,8 @@ canvas{width:100%!important;border-radius:8px;}
 
 </div><!-- /pages-wrap -->
 
+<!-- The portfolio rules, run over the closes: strategyState(). -->
+<script src="strategy.js"></script>
 <script>
 // ═══════════════════════
 // DAILY SNAPSHOT
@@ -681,9 +663,10 @@ function tsNow(elId) {
 // ═══════════════════════
 // PAGE 1 — SMA
 // ═══════════════════════
-let belowStreak = 0;
-function saveStreak(n) { try{localStorage.setItem('sma_streak',String(n));}catch(e){} }
-function loadStreak()  { try{return parseInt(localStorage.getItem('sma_streak')||'0',10);}catch(e){return 0;} }
+// The days-below counter lived in localStorage and counted the days the page
+// was opened while the price was below the line. The rules now run on the
+// closes (strategy.js); clear what the old counter left behind.
+try { localStorage.removeItem('sma_streak'); localStorage.removeItem('sma_streak_day'); } catch (e) {}
 
 function setVerdict(type, icon, title, body) {
   const c = document.getElementById('verdictCard');
@@ -693,16 +676,103 @@ function setVerdict(type, icon, title, body) {
   document.getElementById('verdictBody').textContent  = body;
 }
 
-function renderStreak(streak, isBelow) {
-  const dots = document.getElementById('streakDots');
-  const verdict = document.getElementById('streakVerdict');
-  let html = '';
-  for (let i=1;i<=3;i++) html += `<div class="dot${isBelow&&streak>=i?' below':''}">${i}</div>`;
-  dots.innerHTML = html;
-  if (!isBelow) { verdict.textContent='S&P מעל קו 200 — אין סיגנל יציאה'; verdict.className='streak-verdict'; }
-  else if (streak===1) { verdict.textContent='יום 1 מתחת — המתן, עוד 2 ימים לסיגנל'; verdict.className='streak-verdict'; }
-  else if (streak===2) { verdict.textContent='⚠️ יום 2 — אם מחר גם מתחת, צא מהמניות'; verdict.className='streak-verdict alert'; }
-  else { verdict.textContent='🚨 יום 3 — צא עכשיו מה-40% מניות'; verdict.className='streak-verdict alert'; }
+const PLAN_SHARE = 40;   // the portfolio's stock allocation, bought back in thirds
+const fmtDay = st => { const d = new Date(st * 1000); return `${d.getUTCDate()}.${d.getUTCMonth() + 1}`; };
+const pips = (n, k) => '<div class="pips">' +
+  Array.from({ length: n }, (_, i) => `<div class="pip${i < k ? ' on' : ''}"></div>`).join('') + '</div>';
+const gapText = (st, named) => `${Math.abs(st.gapPct).toFixed(1)}% ` +
+  (st.gapPct >= 0 ? (named ? 'מעל קו 200' : 'מעל הקו') : (named ? 'מתחת לקו 200' : 'מתחת לקו'));
+const sharePct = thirds => Math.round(thirds / 3 * PLAN_SHARE);
+
+// The plan as steps — the exit, then three thirds back — each one done, the one
+// we stand at, or not in play yet.
+function renderPlan(st) {
+  const el = document.getElementById('planCard');
+  if (!st) { el.innerHTML = '<div class="plan-note">אין מספיק נתונים לחישוב.</div>'; return; }
+  const since = st.lastExit ? st.events.slice(st.events.indexOf(st.lastExit) + 1) : [];
+  const step = (cls, icon, cond, sub, act) =>
+    `<div class="step ${cls}"><div class="step-icon">${icon}</div><div class="step-main">` +
+    `<div class="step-cond">${cond}${cls.includes('now') ? '<span class="here">כאן</span>' : ''}</div>` +
+    (sub ? `<div class="step-sub">${sub}</div>` : '') +
+    `</div><div class="step-act">${act}</div></div>`;
+
+  let h = '<div class="plan-expo"><div class="expo-bar">' +
+    [1, 2, 3].map(k => `<div class="expo-seg${st.held >= k ? ' on' : ''}"></div>`).join('') +
+    `</div><div class="expo-text">מניות בתיק: ${sharePct(st.held)}% מתוך ${PLAN_SHARE}%</div></div>`;
+
+  h += '<div class="plan-sec">יציאה</div>';
+  h += st.held > 0
+    ? step('exit now' + (st.below ? ' alert' : ''), '!', '3 סגירות רצופות מתחת לקו',
+        (st.below ? `${st.below} מתוך 3` : gapText(st)) + pips(3, st.below), 'מוכרים הכל')
+    : step('exit done', '✓', '3 סגירות רצופות מתחת לקו', `הופעל ב־${fmtDay(st.lastExit.date)}`, 'מוכרים הכל');
+
+  h += '<div class="plan-sec">חזרה, בשלישים</div>';
+  [['3 סגירות רצופות מעל הקו', 3], ['10 סגירות רצופות מעל הקו', 10], ['ממוצע 50 יום מעל ממוצע 200', 0]]
+    .forEach(([cond, n], k) => {
+      const third = k + 1, act = third === 3 ? 'שליש אחרון' : 'שליש';
+      if (st.held === 3) return void (h += step('idle', third, cond, '', act));
+      if (st.held >= third) {
+        const e = since.find(x => x.type === 'buy' + third);
+        return void (h += step('done', '✓', cond, e ? `בוצע ב־${fmtDay(e.date)}` : '', act));
+      }
+      if (st.held < third - 1) return void (h += step('idle', third, cond, '', act));
+      const sub = n ? (st.above ? `${st.above} מתוך ${n}` : gapText(st)) + pips(n, Math.min(st.above, n))
+                    : st.golden ? 'מתקיים — נקנה בסגירה הבאה מעל הקו'
+                                : `ממוצע 50 עוד ${Math.abs(st.goldenGapPct).toFixed(1)}% מתחת`;
+      h += step('now', third, cond, sub, act);
+    });
+
+  h += '<div class="plan-note">✋ ירידה שלא חוצה את הקו — לא עושים כלום.<br>' +
+       '🔁 3 סגירות מתחת לקו באמצע החזרה — מוכרים את מה שנקנה ומתחילים מחדש.<br>' +
+       `📅 לפי הסגירה של ${fmtDay(st.date)}. נספרות רק סגירות, לא המחיר במהלך היום.</div>`;
+  el.innerHTML = h;
+}
+
+// The verdict: what the plan says now, in a line. A signal stays on top for
+// five closes, so it is not missed on a day the page was not opened.
+function planVerdict(st) {
+  if (!st) return setVerdict('load', '📡', 'לא זמין', 'אין מספיק נתונים.');
+  const last = st.events[st.events.length - 1];
+  const fresh = last && st.index - last.i <= 4;
+  if (fresh && last.type === 'exit')
+    return setVerdict('exit', '🚨', 'יציאה: מוכרים את המניות',
+      `3 סגירות רצופות מתחת לקו 200 (ב־${fmtDay(last.date)}). לפי התוכנית: מוכרים את כל ה־${PLAN_SHARE}%.`);
+  if (fresh) {
+    const n = st.events.filter(e => e.i === last.i && e.type !== 'exit').length;
+    const what = st.held === 3 && n === 3 ? 'חוזרים במלואם' : n === 2 ? 'שני שלישים'
+               : st.held === 3 ? 'השליש האחרון' : st.held === 2 ? 'שליש שני' : 'שליש ראשון';
+    return setVerdict('hold', '🟢', `קנייה: ${what}`,
+      `סיגנל ב־${fmtDay(last.date)}. לפי התוכנית: קונים ${sharePct(n)}% מהתיק.`);
+  }
+  if (st.held > 0 && st.below) {
+    const left = 3 - st.below;
+    return setVerdict('watch', '⚠️', `אזהרה: ${st.below} מתוך 3`,
+      `עוד ${left === 1 ? 'סגירה אחת' : left + ' סגירות'} מתחת לקו 200 = מוכרים${st.held < 3 ? ' את מה שנקנה' : ''}.`);
+  }
+  if (st.held === 3)
+    return setVerdict('hold', '✅', 'מושקעים — הכל תקין', `המדד ${gapText(st, true)}. אין מה לעשות.`);
+  if (st.held === 0)
+    return setVerdict('wait', '⏸', 'בחוץ — מחכים', `חוזרים אחרי 3 סגירות רצופות מעל קו 200 (עכשיו ${st.above} מתוך 3).`);
+  if (st.held === 1)
+    return setVerdict('wait', '⅓', 'שליש בפנים', `השליש הבא: 10 סגירות רצופות מעל קו 200 (עכשיו ${st.above} מתוך 10).`);
+  return setVerdict('wait', '⅔', 'שני שלישים בפנים', st.golden
+    ? 'השליש האחרון: בסגירה הבאה מעל קו 200.'
+    : `השליש האחרון: כשממוצע 50 יעלה מעל ממוצע 200 (חסר ${Math.abs(st.goldenGapPct).toFixed(1)}%).`);
+}
+
+// While the market trades, today's price is not a close yet: say where it is
+// and what a close there would mean, without counting it.
+function liveLine(ifClosed) {
+  const el = document.getElementById('verdictLive');
+  if (!ifClosed) { el.textContent = ''; return; }
+  const t = ifClosed.today;
+  const then = t.includes('exit') ? 'יציאה'
+    : t.length ? 'קנייה'
+    : ifClosed.held > 0 && ifClosed.below ? `${ifClosed.below} מתוך 3 מתחת`
+    : ifClosed.held === 0 && ifClosed.above ? `${ifClosed.above} מתוך 3 מעל`
+    : ifClosed.held === 1 && ifClosed.above ? `${ifClosed.above} מתוך 10 מעל`
+    : '';
+  el.textContent = `במסחר עכשיו: ${gapText(ifClosed, true)}` + (then ? ` · סגירה כזו = ${then}` : '') + '.';
 }
 
 function drawChart(labels, prices, sma200s, curPrice, curSMA, tries) {
@@ -811,6 +881,13 @@ function nyDay(s) {
     .formatToParts(new Date(s * 1000)).forEach(x => { p[x.type] = x.value; });
   return `${p.year}-${p.month}-${p.day}`;
 }
+// Minutes since midnight in New York for a unix time.
+function nyMinutes(s) {
+  const p = {};
+  new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .formatToParts(new Date(s * 1000)).forEach(x => { p[x.type] = x.value; });
+  return (+p.hour % 24) * 60 + +p.minute;
+}
 // "30.9" for a YYYY-MM-DD date.
 function dayShort(d) { const [, m, dd] = d.split('-'); return `${+dd}.${+m}`; }
 
@@ -826,7 +903,7 @@ async function liveGSPC() {
   const spy = await fetchFinnhub('SPY');
   const lv = marketData && marketData.levels && marketData.levels.sp500;
   if (!spy || spy.price == null || !spy.t || !lv || !lv.ratio) return null;
-  return { level: spy.price * lv.ratio, change: spy.change, day: nyDay(spy.t) };
+  return { level: spy.price * lv.ratio, change: spy.change, day: nyDay(spy.t), t: spy.t };
 }
 
 // Full daily series, held in memory so switching range costs no request.
@@ -867,7 +944,6 @@ async function loadSMA() {
   if (smaBusy) return;
   smaBusy = true;
   document.getElementById('errorBox').style.display = 'none';
-  belowStreak = loadStreak();
   try {
     // Daily history comes from the snapshot the collector built server-side.
     // Same origin, so no CORS and no proxy in the path; closes and timestamps
@@ -880,33 +956,31 @@ async function loadSMA() {
     // the official close for that day is in the file, it stands as it is.
     const live = await liveGSPC();
     const lastDay = new Date(stamps[stamps.length-1] * 1000).toISOString().slice(0, 10);
-    let change;
+    let change, trading = false;
     if (live && live.day > lastDay) {
       closes.push(live.level);
       stamps.push(Date.parse(live.day + 'T00:00:00Z') / 1000);
       change = live.change;
+      // Before 16:00 in New York the session is still open: the point is drawn
+      // but not counted. After it, the last price is the day's close.
+      trading = nyMinutes(live.t) < 16 * 60;
     } else {
       change = ((closes[closes.length-1] - closes[closes.length-2]) / closes[closes.length-2]) * 100;
     }
+    const n = trading ? closes.length - 1 : closes.length;
+    const st = strategyState(closes.slice(0, n), stamps.slice(0, n));
     const price = closes[closes.length-1];
-    const sma200 = calcSMA(closes, 200);
-    const isBelow = price < sma200;
-    const gapPct = ((price-sma200)/sma200)*100;
+    const isBelow = price < calcSMA(closes, 200);
+    // "today" only when the last point is today in New York; on a weekend the
+    // move shown is Friday's.
+    const lastPt = new Date(stamps[stamps.length-1] * 1000).toISOString().slice(0, 10);
+    const when = lastPt === nyDay(Date.now() / 1000) ? 'היום' : `ב־${dayShort(lastPt)}`;
 
-    if (isBelow) {
-      const today = new Date().toDateString();
-      const lastDay = localStorage.getItem('sma_streak_day')||'';
-      if (today !== lastDay) { belowStreak=Math.min(belowStreak+1,3); localStorage.setItem('sma_streak_day',today); saveStreak(belowStreak); }
-    } else { belowStreak=0; saveStreak(0); try{localStorage.removeItem('sma_streak_day');}catch(e){} }
-
-    const c = isBelow?'red':'green';
-    document.getElementById('spChange').innerHTML = `<span class="${change>=0?'up':'down'}">${change>=0?'+':''}${fmt(change)}% היום</span>`;
+    document.getElementById('spChange').innerHTML = `<span class="${change>=0?'up':'down'}">${change>=0?'+':''}${fmt(change)}% ${when}</span>`;
     document.getElementById('spBadge').innerHTML = isBelow?'<span class="pill red">מתחת לקו 200</span>':'<span class="pill green">מעל קו 200</span>';
-    renderStreak(belowStreak, isBelow);
-
-    if (!isBelow) setVerdict('hold','✅','החזק מניות',`S&P ב-${fmt(price,0)}, מעל קו 200 ב-${fmt(sma200,0)}. המשך להחזיק את ה-40%.`);
-    else if (belowStreak>=3) setVerdict('exit','🚨','צא עכשיו','שלושה ימים רצופים מתחת לקו 200. מכור את כל ה-40% מניות. ללא היסוסים.');
-    else setVerdict('watch','⚠️',`יום ${belowStreak} מתחת`,`S&P מתחת לקו. ${3-belowStreak} ימים נוספים עד לסיגנל יציאה.`);
+    planVerdict(st);
+    liveLine(trading ? strategyState(closes, stamps) : null);
+    renderPlan(st);
 
     // hold the full series so the range buttons redraw without refetching
     seriesCloses = closes; seriesStamps = stamps;

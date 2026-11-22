@@ -825,7 +825,7 @@ let prev = null;
 try { prev = JSON.parse(await readFile(OUT, 'utf8')); console.log('loaded previous snapshot'); }
 catch { console.log('no previous snapshot — starting fresh'); }
 
-const sp = await withRetry(() => getHistory('^GSPC', '300d', 210), 4, '^GSPC');
+const sp = await withRetry(() => getHistory('^GSPC', '2y', 210), 4, '^GSPC');
 console.log(`sp500: ${sp.closes.length} bars from ${sp.source}`);
 
 const universe = await loadConstituents();

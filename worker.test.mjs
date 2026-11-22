@@ -271,5 +271,59 @@ check('the month in progress is not judged yet', curveStats(tenY.concat([{ date:
 check('the same history gives the same count however it is cut',
       curveStats(tenY.filter((_, i) => i % 2), threeM.filter((_, i) => i % 2)).inversions === 2);
 
+console.log('\n[15] Portfolio rules over the closes');
+{
+  const vm = await import('node:vm');
+  const { readFileSync } = await import('node:fs');
+  const ctx = {}; vm.createContext(ctx);
+  vm.runInContext(readFileSync(new URL('./strategy.js', import.meta.url), 'utf8'), ctx);
+  const run = closes => ctx.strategyState(closes, closes.map((_, i) => 1700000000 + i * 86400));
+  const types = st => st.events.map(e => e.type).join(',');
+  const base = Array(220).fill(100);   // flat: the price sits on its own average
+
+  check('under 200 closes there is no average, so no state', run(Array(199).fill(100)) === null);
+  const flat = run(base);
+  check('on the line: fully in, nothing to do', flat.held === 3 && !flat.events.length && flat.index === 219, flat);
+  const two = run([...base, 99, 99, 101]);
+  check('two closes below, then one above: no exit', two.held === 3 && !two.events.length && two.above === 1, two);
+  const out = [...base, 99, 99, 99];
+  const so = run(out);
+  check('the third close below in a row sells everything',
+        so.held === 0 && types(so) === 'exit' && so.today.join() === 'exit' && so.lastExit.i === out.length - 1, so);
+  const bounce = run([...out, 101, 101, 99, 101, 101]);
+  check('a close below on the way back resets the count', bounce.held === 0 && bounce.above === 2, bounce);
+  const in1 = [...out, 101, 101, 99, 101, 101, 101];
+  const s1 = run(in1);
+  check('the third close above in a row buys the first third',
+        s1.held === 1 && types(s1) === 'exit,buy1' && s1.today.join() === 'buy1', s1);
+  const fall = run([...in1, 99, 99, 99]);
+  check('three closes below on the way back sell what was bought',
+        fall.held === 0 && types(fall) === 'exit,buy1,exit', fall);
+  const nine = run([...in1, ...Array(6).fill(101)]);
+  check('nine closes above: still one third', nine.held === 1 && nine.above === 9, nine);
+  const quick = run([...in1, ...Array(7).fill(101)]);
+  check('after a short dip the 50-day never left the 200-day: the tenth close brings both thirds',
+        quick.held === 3 && quick.today.join() === 'buy2,buy3', quick);
+
+  // A long slide drags the 50-day under the 200-day; the last third waits for it.
+  const slide = [...base, ...Array(60).fill(95), ...Array(10).fill(101)];
+  const s2 = run(slide);
+  check('after a long slide, ten closes above buy the second third only',
+        s2.held === 2 && !s2.golden && types(s2) === 'exit,buy1,buy2', s2);
+  const k = slide.slice();
+  while (k.length < 400 && run(k).held === 2) k.push(101);
+  const s3 = run(k), before = run(k.slice(0, -1));
+  check('the last third comes on the day the 50-day crosses the 200-day',
+        s3.held === 3 && s3.today.join() === 'buy3' && before.held === 2 && !before.golden, { s3: s3.today, before: before.golden });
+  // The cross landing on a close below the line waits for the next close above.
+  const kk = k.slice(0, -1);
+  kk.push(+(before.sma200 - 0.2).toFixed(2));
+  const crossBelow = run(kk);
+  check('a cross on a close below the line does not buy',
+        crossBelow.golden && crossBelow.below === 1 && crossBelow.held === 2, crossBelow);
+  const nextAbove = run([...kk, 101]);
+  check('the next close above does', nextAbove.held === 3 && nextAbove.today.join() === 'buy3', nextAbove.today);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
